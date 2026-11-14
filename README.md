@@ -37,8 +37,7 @@ the API in `apps/api`).
   Older `plu/…` API clients default to the owner's first catalogue and can
   select another with `catalogue=<id>`.
 
-After upgrading, run `manage.py migrate`, collect static files and reload the
-server as usual, then build/update the native app. The old shared PLU list is
+After upgrading, run `./scripts/deploy.sh` on the server, then build/update the native app. The old shared PLU list is
 preserved **unassigned and hidden**. To explicitly give it to its owner as a
 separate **My PLUs** catalogue, run:
 
@@ -76,8 +75,8 @@ old list to new accounts automatically. A general example is in
   video is re-encoded to H.264 MP4 at up to 1080p (never enlarged) — a 4K
   clip comes down to a fraction of its size, and an iPhone's HEVC plays on
   every phone — so there is no cap on the size of what is sent; what is
-  kept is bounded by the re-encoding. Both tools are on PythonAnywhere
-  already; without them a clip every phone plays as it is (H.264 at 1080p
+  kept is bounded by the re-encoding. Both tools are in the server's
+  image (`Dockerfile`); without them a clip every phone plays as it is (H.264 at 1080p
   or under) is kept as it came, anything else is refused, and a trim is
   refused in so many words. The phone grabs a frame for the tile, from the
   start of the part kept
@@ -121,32 +120,36 @@ rows), workplaces (with the payslip reader), pay, and the statement PDF —
 `apps/api/views/timeclock.py` calls the page views' own helpers so the
 app's figures are the site's. PLU's photo search is `plu/photo/`
 (the read as rows, the phone keeps them) and `plu/photo/pdf/` (the rows
-back, as the picking-list PDF). After pulling this on the server:
-`pip install -r requirements.txt` (DRF), `manage.py migrate` (tokens and
-devices), then Reload — a store-style build of the app is pointed at the
+back, as the picking-list PDF). After updating, run `./scripts/deploy.sh` on the
+server — a store-style build of the app is pointed at the
 live site and can't sign in until that has happened (the phone can be
 pointed elsewhere from the sign-in screen meanwhile).
 
-## Deploying (PythonAnywhere)
+## Deploying (Hostinger VPS)
 
-The server runs its own WSGI file, kept in the **Web** tab under *WSGI
-configuration file* — `/var/www/<user>_pythonanywhere_com_wsgi.py`. It is not
-in this repository, so pulling never updates it. It must name a settings
-*module*, not the settings package:
+KaamKoRecord runs at https://kaamkorecord.com on the same VPS as Bideshkosathi, in its own
+containers with its own database and uploads (`docker-compose.prod.yml`). Bideshkosathi's nginx is
+the front door for both: it answers `kaamkorecord.com`, gets its HTTPS certificate, serves
+`/static/` and the public upload folders (`avatars`, `stories`, `festivals`), and passes the rest to
+this app. A `jobs` container runs the scheduled work (`scripts/jobs.sh`).
 
-```python
-import os, sys
+First time, on the VPS:
 
-path = '/home/<user>/MyWork'
-if path not in sys.path:
-    sys.path.insert(0, path)
+```bash
+git clone https://github.com/kiranlamalopchan/MyWork.git ~/kaamkorecord
+cd ~/kaamkorecord
+cp deploy/env.example .env     # fill it in; keep the old secret key and VAPID keys
+./scripts/deploy.sh
+```
 
-os.environ['DJANGO_SETTINGS_MODULE'] = 'mywork.settings.production'
-os.environ['DJANGO_SECRET_KEY']      = '<a long random string>'
-os.environ['DJANGO_ALLOWED_HOSTS']   = '<user>.pythonanywhere.com'
+Then set `KAAMKORECORD_DOMAIN=kaamkorecord.com` in Bideshkosathi's `.env.production` and run its
+`./scripts/deploy.sh`, which gets the certificate once the domain's DNS points at the VPS.
 
-from django.core.wsgi import get_wsgi_application
-application = get_wsgi_application()
+Every update after that: `./scripts/deploy.sh` here. It pulls, builds, migrates, collects static
+files and restarts. To load a copy of another server's data (this replaces what is here):
+
+```bash
+./scripts/import-data.sh ~/kaamkorecord-data.tgz   # holds db.sqlite3 and media/
 ```
 
 A new secret key:
@@ -155,45 +158,8 @@ A new secret key:
 python -c "from django.core.management.utils import get_random_secret_key as k; print(k())"
 ```
 
-Then, in a Bash console on the server, from `~/MyWork`:
-
-```bash
-git pull
-python manage.py migrate           --settings=mywork.settings.production
-python manage.py collectstatic     --settings=mywork.settings.production --noinput
-```
-
-Both are required, and each fails loudly in its own way if skipped:
-
-- no `migrate` → `OperationalError: no such table: noticeboard_notice`
-- no `collectstatic` → `ValueError: Missing staticfiles manifest entry` on
-  every page, because production serves static files under hashed names and
-  the manifest that maps them is written by `collectstatic`.
-
-### Profile photos
-
-Django serves uploaded files itself only while `DEBUG` is on, so on the server
-the web server has to. In the **Web** tab, under *Static files*, add:
-
-| URL | Directory |
-| --- | --- |
-| `/media/avatars/` | `/home/<user>/MyWork/media/avatars` |
-| `/media/stories/` | `/home/<user>/MyWork/media/stories` |
-
-Without them every profile photo 404s and each face falls back to its
-initial, and every story opens black.
-
-Map `/media/avatars/` rather than `/media/`: the mapping serves whatever is
-under it straight off the disk, with no view and no permission check in the
-way, so it should reach exactly the files that are meant to be public.
-
-Finally **Reload** the web app — Django will not pick up new code or a changed
-WSGI file until you do.
-
-To see the site immediately without setting any of this up,
-`mywork.settings.local` will serve it — but it runs with `DEBUG = True`, which
-shows a full traceback and your settings to anybody who triggers an error. It
-is for a laptop, not for a site with an address.
+`mywork.settings.local` runs with `DEBUG = True`, which shows a full traceback and your settings to
+anybody who triggers an error. It is for a laptop, not for a site with an address.
 
 ## Notifications
 
@@ -218,8 +184,7 @@ Web Push identifies this site to every browser's push service with a keypair
 python manage.py vapid_keys
 ```
 
-and put the three lines it prints in `.env` beside the code — the same file
-`production.py` already reads its secret key from:
+and put the three lines it prints in the server's `.env` (see `deploy/env.example`):
 
 ```
 VAPID_PRIVATE_KEY=...
@@ -227,7 +192,7 @@ VAPID_PUBLIC_KEY=...
 VAPID_CONTACT_EMAIL=you@example.com
 ```
 
-Then **Reload** the web app. With no keys set, KaamKoRecord runs exactly as before
+Then run `./scripts/deploy.sh`. With no keys set, KaamKoRecord runs exactly as before
 and simply never interrupts anyone — the inbox says so rather than offering a
 switch that cannot work.
 
@@ -258,65 +223,21 @@ minutes?" — and the rare one that finds it has not runs the sweep. The claim
 is a single conditional UPDATE, so several workers answering requests at the
 same moment cannot both start it.
 
-This is deliberate rather than clever, and it is because of the host. A free
-PythonAnywhere account gets **one scheduled task, once a day**. A clock-out
-forgotten at four in the afternoon would go unmentioned until that task ran
-in the evening, which is late enough to be an accusation rather than a
-reminder. Riding on traffic instead means a reminder within about fifteen
-minutes for as long as anybody is using KaamKoRecord.
-
-What it cannot do is fire at three in the morning with nobody around. So point
-the one daily task at the same work as a backstop — **Tasks** tab, at a time
-that suits:
-
-```bash
-cd ~/MyWork && python manage.py timesheet_reminders --quiet --settings=mywork.settings.production
-```
-
-On a paid account the same task can run hourly, and on any account running it
-by hand is harmless: every reminder is keyed to the shift or the pay period it
-is about, so a second run rewrites the line it already sent rather than
-sending another one, and a phone is only buzzed again about the same forgotten
-clock-out after three hours.
+The `jobs` container also runs `timesheet_reminders` every 15 minutes, so reminders go out even
+when nobody is using the site. Running it by hand is harmless: every reminder is keyed to the shift
+or the pay period it is about, so a second run rewrites the line it already sent rather than sending
+another one, and a phone is only buzzed again about the same forgotten clock-out after three hours.
 
 ### If nothing arrives
 
 In order of how often it is the answer:
 
-1. **No keys, or the site was not reloaded** after adding them.
+1. **No keys, or the site was not redeployed** after adding them.
 2. **The iPhone is in Safari rather than on the Home Screen** — see above.
 3. **The subscription is stale.** Django Admin -> Push subscriptions shows
    whether that person has a row at all. Opening any page re-registers it, so
    "load the site once, then try again" resolves most of these.
 4. **They are using Firefox.** See below.
-
-### Free accounts and the allowlist
-
-A free PythonAnywhere account can only make outbound HTTPS requests to hosts
-on [its allowlist](https://www.pythonanywhere.com/whitelist/), which matters
-here because sending a push *is* an outbound request. Two wildcard entries
-cover the services that matter:
-
-| Browser | Push service | Free account |
-| --- | --- | --- |
-| Chrome, Edge, Android | `fcm.googleapis.com` | yes, via `.googleapis.com` |
-| Safari, iPhone | `web.push.apple.com` | yes, via `.apple.com` |
-| Firefox | `updates.push.services.mozilla.com` | **no** |
-
-So push works on a free account for every browser but Firefox, where the bell
-and the inbox still work and nothing reaches the lock screen. PythonAnywhere
-take requests to add hosts if that becomes worth doing.
-
-To confirm it on your own account, from a Bash console on the server:
-
-```bash
-curl -sS -o /dev/null -w "%{http_code}\n" https://fcm.googleapis.com/fcm/send/test
-```
-
-Any status code back — 400 and 404 included — means outbound works.
-
-Notifications are recorded either way, so the Alerts tab is always right even when
-the push is not arriving. That is the point of keeping the two apart.
 
 ## Layout
 
@@ -514,15 +435,6 @@ and the Australian public-holiday records. Calendar dates can be revised; keep
 the dependency current. Exact-date overrides can be supplied in Django settings
 as `SEASONAL_THEME_DATES = {"YYYY-MM-DD": {"id": "dashain"}}`.
 
-After pulling/uploading the updated code on PythonAnywhere, activate the web
-app's virtualenv and run:
-
-```bash
-pip install -r requirements.txt
-python manage.py migrate --settings=mywork.settings.production
-python manage.py collectstatic --settings=mywork.settings.production --noinput
-```
-
-Then Reload in the Web tab. The migration creates the single shared banner
+After updating, run `./scripts/deploy.sh` on the server. The migration creates the single shared banner
 settings row with Automatic selected. Admin changes are reflected on the next
 Home page load.

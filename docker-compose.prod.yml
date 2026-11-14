@@ -1,0 +1,51 @@
+# KaamKoRecord on the VPS, next to Bideshkosathi. Run it through scripts/deploy.sh.
+#
+# Bideshkosathi's nginx is the front door for both sites: it answers kaamkorecord.com, serves the
+# static files and public photos straight from the volumes below, and passes everything else to
+# "kaamkorecord-web" over the shared "edge" network. The database, uploads and settings stay here.
+x-app: &app
+  build: .
+  image: kaamkorecord:latest
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    SQLITE_PATH: /data/db.sqlite3
+  volumes:
+    - data:/data
+    - media:/app/media
+    - static:/app/staticfiles
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  web:
+    <<: *app
+    networks:
+      default:
+      edge:
+        aliases: [kaamkorecord-web]
+
+  # Timesheet reminders, expired stories and public holidays. See scripts/jobs.sh.
+  jobs:
+    <<: *app
+    command: ["sh", "scripts/jobs.sh"]
+
+# Made by scripts/deploy.sh, so Bideshkosathi's nginx can mount the same ones.
+volumes:
+  data:
+    name: kaamkorecord_data
+    external: true
+  media:
+    name: kaamkorecord_media
+    external: true
+  static:
+    name: kaamkorecord_static
+    external: true
+
+networks:
+  edge:
+    name: edge
+    external: true

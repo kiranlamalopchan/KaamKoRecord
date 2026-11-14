@@ -63,11 +63,8 @@ class ReminderSweepMiddleware:
     """
     Run the timesheet reminders off the back of ordinary page loads.
 
-    There is no cron here to run them properly. A free PythonAnywhere account
-    gets one scheduled task, once a day, which would mean hearing about a
-    clock-out you forgot at four in the afternoon at nine in the evening —
-    late enough to be an accusation rather than a reminder. So the sweep rides
-    on traffic instead: every request asks whether it is due, and roughly four
+    The jobs container runs them every fifteen minutes (scripts/jobs.sh). This
+    is the second way in, so a reminder never waits on that container alone: every request asks whether it is due, and roughly four
     times an hour one of them finds that it is and runs it.
 
     What that buys and what it costs are both worth being clear about. It

@@ -8,7 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://butcher11643.pythonanywhere.com"
+        "EXPO_PUBLIC_API_URL": "https://kaamkorecord.com"
       }
     },
     "preview": {
@@ -17,13 +17,13 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://butcher11643.pythonanywhere.com"
+        "EXPO_PUBLIC_API_URL": "https://kaamkorecord.com"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://butcher11643.pythonanywhere.com"
+        "EXPO_PUBLIC_API_URL": "https://kaamkorecord.com"
       }
     },
     "production-apk": {

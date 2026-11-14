@@ -2,8 +2,8 @@
 Take down every story whose day is up — files included.
 
 A story stops showing the moment it expires whether or not this runs; this
-is what gets the photo off the disk. Run it on a schedule (PythonAnywhere's
-Tasks tab, once an hour is plenty).
+is what gets the photo off the disk. The jobs container runs it every hour
+(scripts/jobs.sh).
 """
 
 from django.core.management.base import BaseCommand

@@ -36,7 +36,6 @@ if os.environ.get("DJANGO_SETTINGS_MODULE") == __name__:
         "DJANGO_SETTINGS_MODULE is set to 'mywork.settings', which is a "
         "package holding the settings rather than the settings themselves. "
         "Point it at one of 'mywork.settings.production' (a server) or "
-        "'mywork.settings.local' (a laptop). On PythonAnywhere this is set "
-        "in the WSGI configuration file linked from the Web tab, not in the "
-        "repository."
+        "'mywork.settings.local' (a laptop). On the server the Dockerfile "
+        "sets it."
     )

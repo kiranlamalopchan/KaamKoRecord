@@ -24,6 +24,6 @@ password-recovery change. Those failures are not resolved by this work.
 
 Live Brevo delivery has not been tested or configured. Follow
 [the setup guide](../../docs/password-recovery.md) to verify a sender, add
-the private API key on PythonAnywhere, reload, and test actual delivery.
+the private API key in the server's .env, run ./scripts/deploy.sh, and test actual delivery.
 The native button requires an updated installed build; an Expo export does
 not install or publish one.

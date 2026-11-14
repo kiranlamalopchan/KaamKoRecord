@@ -12,7 +12,7 @@ the app receives a single-use, short-lived code protected by a locally held proo
 ## Configuration still required
 
 No provider credentials have been created or configured. The current EAS profiles
-point to `https://butcher11643.pythonanywhere.com`. Configure the server that those
+point to `https://kaamkorecord.com`. Configure the server that those
 builds actually use, then deploy these changes and run migrations.
 
 ### Google
@@ -23,7 +23,7 @@ builds actually use, then deploy these changes and run migrations.
 2. Create an OAuth client with application type **Web application**. This
    integration exchanges codes through Django, including for native apps.
 3. Register this exact authorized redirect URI:
-   `https://butcher11643.pythonanywhere.com/api/v1/auth/social/google/callback/`
+   `https://kaamkorecord.com/api/v1/auth/social/google/callback/`
 4. Save the client ID and client secret in the server environment below.
 
 The existing Android `google-services.json` is not a replacement for an OAuth
@@ -35,8 +35,8 @@ web client secret. See [Google's OpenID Connect setup](https://developers.google
    enable Sign in with Apple on the primary App ID `com.kiranlama.mywork`.
 2. Create a **Services ID** for browser sign-in and associate it with that App ID.
    Use the Services ID as `APPLE_OAUTH_CLIENT_ID`, rather than the iOS bundle ID.
-3. Configure the domain `butcher11643.pythonanywhere.com` and return URL
-   `https://butcher11643.pythonanywhere.com/api/v1/auth/social/apple/callback/`.
+3. Configure the domain `kaamkorecord.com` and return URL
+   `https://kaamkorecord.com/api/v1/auth/social/apple/callback/`.
 4. Create a Sign in with Apple private key. Keep the downloaded `.p8` file private
    and record its Key ID and your Team ID. Populate the server environment below.
 
@@ -51,7 +51,7 @@ HTTPS origin consistently if it differs from the EAS profiles above. Never put
 secrets in `EXPO_PUBLIC_*`, `app.json`, or the mobile bundle.
 
 ```dotenv
-SOCIAL_AUTH_BASE_URL=https://butcher11643.pythonanywhere.com
+SOCIAL_AUTH_BASE_URL=https://kaamkorecord.com
 GOOGLE_OAUTH_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
 GOOGLE_OAUTH_CLIENT_SECRET=your-google-client-secret
 APPLE_OAUTH_CLIENT_ID=your-services-id
@@ -60,7 +60,7 @@ APPLE_OAUTH_KEY_ID=your-key-id
 APPLE_OAUTH_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_P8_KEY_CONTENT\n-----END PRIVATE KEY-----"
 ```
 
-Then install `requirements.txt`, run `python manage.py migrate`, and reload Django.
+Then run `./scripts/deploy.sh` on the server.
 Each provider can be configured independently. An unconfigured provider explains
 that password sign-in is available.
 

@@ -1,0 +1,14 @@
+.git
+.env
+venv
+__pycache__
+*.pyc
+db.sqlite3*
+media
+staticfiles
+mobile
+design
+releases
+sample_data
+*.log
+.DS_Store

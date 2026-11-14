@@ -6,7 +6,7 @@
 # network video it sends a small `Range` request to see whether the server
 # can be scrubbed, and a plain 200 back where a 206 was promised reads as a
 # broken server, so it refuses the whole clip. In production the web server
-# (PythonAnywhere's, standing in front of MEDIA_ROOT directly) already
+# (nginx, standing in front of MEDIA_ROOT directly) already
 # answers Range requests properly — this is only for `runserver`.
 
 import mimetypes

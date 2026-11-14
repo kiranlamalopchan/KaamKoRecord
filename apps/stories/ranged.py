@@ -4,8 +4,8 @@ A video served a piece at a time.
 An iPhone's player does not download a video and then play it: it asks for
 the first two bytes to learn the file's size, then for the stretches it
 wants, with HTTP `Range` headers — and it refuses outright a server that
-answers those with the whole file. The static file server on PythonAnywhere
-does exactly that (200 and everything, whatever the range asked), so a
+answers those with the whole file. The old host's static file server
+did exactly that (200 and everything, whatever the range asked), so a
 story video under /media/ played on Android and in every browser and was a
 black frame on iOS. This is the range-honouring answer, for videos only —
 pictures are fine where they are.

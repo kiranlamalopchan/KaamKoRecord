@@ -4,12 +4,12 @@ The scheduled half of notifications.
 Everything else KaamKoRecord notifies about happens because somebody pressed
 something, and can be raised in the request that pressed it. A forgotten
 clock-out is the opposite: nothing happens, and that is the thing worth
-saying. So it needs something outside a request to notice, which on a host
-like PythonAnywhere is a scheduled task running:
+saying. So it needs something outside a request to notice: the jobs container
+runs
 
     python manage.py timesheet_reminders
 
-every twenty minutes or so. Running it more often is harmless — each reminder
+every fifteen minutes (scripts/jobs.sh). Running it more often is harmless — each reminder
 is keyed to the shift or the period it is about, so a second run rewrites the
 line it already sent rather than sending another one.
 """

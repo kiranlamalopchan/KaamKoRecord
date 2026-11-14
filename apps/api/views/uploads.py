@@ -1,7 +1,7 @@
 """
 A big file sent a piece at a time.
 
-The host's front proxy (PythonAnywhere) refuses any request over 100 MiB
+The web server in front (nginx) refuses any request over 100 MiB
 with a 413 before Django sees it, and a minute of phone video is often two
 or three times that. So the app cuts a large video into pieces, posts each
 one here in turn, and then creates the story by naming the assembled upload

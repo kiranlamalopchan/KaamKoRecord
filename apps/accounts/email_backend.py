@@ -1,4 +1,4 @@
-"""Django email over HTTPS, including PythonAnywhere's free-tier proxy."""
+"""Django email over HTTPS, through Brevo's API."""
 import json
 from email.utils import parseaddr
 from urllib.error import HTTPError, URLError
