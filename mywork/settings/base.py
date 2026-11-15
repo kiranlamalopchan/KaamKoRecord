@@ -69,6 +69,9 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     'apps.api.observability.RequestIDMiddleware',
+    # Before everything that reads or writes: a retired server answers
+    # nothing but "we've moved" (see SITE_MOVED_TO in settings/production.py).
+    'apps.api.moved.SiteMovedMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

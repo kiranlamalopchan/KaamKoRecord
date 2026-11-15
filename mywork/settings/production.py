@@ -93,6 +93,18 @@ VAPID_CONTACT_EMAIL = os.environ.get('VAPID_CONTACT_EMAIL', '')
 
 
 # --------------------------------------------------------------------------
+# A server that has been retired
+#
+# Set on the OLD server once the site lives somewhere else, e.g.
+#     SITE_MOVED_TO=https://kaamkorecord.com
+# Pages then send people to the new address, and every app request is
+# refused with a sentence asking them to update the app — so nothing more is
+# saved here after the last copy of the database was taken (apps/api/moved.py).
+# --------------------------------------------------------------------------
+SITE_MOVED_TO = os.environ.get('SITE_MOVED_TO', '').strip().rstrip('/')
+
+
+# --------------------------------------------------------------------------
 # Transport security
 #
 # All of this assumes TLS terminates in front of Django, which is how it is

@@ -16,6 +16,8 @@ import { OnboardingProvider, useOnboarding } from "@/onboarding/seen";
 import { Crashed } from "@/ui/Crashed";
 import { OfflineSync } from "@/offline/shifts";
 import { Splash } from "@/ui/Splash";
+import { UpdateRequired } from "@/ui/UpdateRequired";
+import { useRequiredUpdate } from "@/update/required";
 import { useNotificationNavigation } from "@/push/useNotificationNavigation";
 import { nativeOrNull } from "@/ui/native";
 import { notifications } from "@/push/register";
@@ -150,6 +152,8 @@ function Shell() {
   const { ready } = useSession();
   const { checked } = useOnboarding();
   const [wayIn, setWayIn] = useState(true);
+  // A version the server has retired sees only the way to the store.
+  const update = useRequiredUpdate();
   // Drawn again when the language changes, so every screen under here is too.
   useT();
   // The saved language, then the buttons a clock notification wears — in
@@ -162,6 +166,7 @@ function Shell() {
       <OfflineSync />
       <RosterAlarms />
       <Guard />
+      {update.required ? <UpdateRequired current={update.current} latest={update.latest} /> : null}
       {wayIn ? <Splash ready={ready && checked} onDone={() => setWayIn(false)} /> : null}
     </GestureHandlerRootView>
   );

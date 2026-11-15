@@ -63,3 +63,45 @@ class MobileReleaseTests(TestCase):
         self.assertEqual(send.call_args.kwargs['dedupe_key'], 'mobile-update:1.3.0')
         release.refresh_from_db()
         self.assertIsNotNone(release.announced_at)
+
+
+class RequiredUpdateTests(TestCase):
+    def test_minimum_version_is_the_highest_required_release(self):
+        MobileRelease.objects.create(version='1.4.2', required=True)
+        MobileRelease.objects.create(version='1.10.0', required=True)
+        MobileRelease.objects.create(version='2.0.0')
+        data = APIClient().get('/api/v1/mobile/release/').json()
+        self.assertEqual(data['minimum_version'], '1.10.0')
+        self.assertEqual(data['version'], '2.0.0')
+
+    def test_nothing_required_means_no_minimum(self):
+        MobileRelease.objects.create(version='1.4.2')
+        self.assertEqual(APIClient().get('/api/v1/mobile/release/').json()['minimum_version'], '')
+
+    def test_release_is_answered_without_a_token_and_despite_a_stale_one(self):
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION='Token not-a-real-token')
+        self.assertEqual(client.get('/api/v1/mobile/release/').status_code, 200)
+
+
+class SiteMovedTests(TestCase):
+    def test_does_nothing_when_unset(self):
+        self.assertNotEqual(self.client.get('/api/v1/mobile/release/').status_code, 400)
+
+    def test_app_requests_are_refused_with_a_sentence_the_old_apps_print(self):
+        user = get_user_model().objects.create_user('moved-test', password='pw-12345678')
+        with self.settings(SITE_MOVED_TO='https://kaamkorecord.com'):
+            login = self.client.post('/api/v1/auth/login/', {'username': 'moved-test', 'password': 'pw-12345678'})
+            client = APIClient()
+            client.force_authenticate(user)
+            workplace = client.post('/api/v1/timesheet/workplaces/', {'name': 'Shop'}, format='json')
+        self.assertEqual(login.status_code, 400)
+        self.assertIn('update the app', login.json()['detail'])
+        self.assertEqual(workplace.status_code, 400)
+        self.assertFalse(Workplace.objects.exists())
+
+    def test_pages_go_to_the_same_path_on_the_new_address(self):
+        with self.settings(SITE_MOVED_TO='https://kaamkorecord.com'):
+            response = self.client.get('/timesheet/?go=roster')
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response['Location'], 'https://kaamkorecord.com/timesheet/?go=roster')

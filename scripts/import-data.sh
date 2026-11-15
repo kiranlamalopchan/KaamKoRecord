@@ -11,7 +11,9 @@ compose() { docker compose -f docker-compose.prod.yml "$@"; }
 archive="$(cd "$(dirname "${1:?Give the path to kaamkorecord-data.tgz}")" && pwd)/$(basename "$1")"
 cd "$(dirname "$0")/.."
 
-if ! tar tzf "$archive" | grep -qx "db.sqlite3"; then
+# Not `grep -q`: it stops reading at the first match, tar then dies of SIGPIPE, and with
+# pipefail that reads as "not found" for any archive with files after db.sqlite3.
+if ! tar tzf "$archive" | grep -x "db.sqlite3" >/dev/null; then
   echo "Stopped: db.sqlite3 is not in ${archive}." >&2
   exit 1
 fi

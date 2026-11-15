@@ -136,7 +136,7 @@ this app. A `jobs` container runs the scheduled work (`scripts/jobs.sh`).
 First time, on the VPS:
 
 ```bash
-git clone https://github.com/kiranlamalopchan/MyWork.git ~/kaamkorecord
+git clone https://github.com/kiranlamalopchan/KaamKoRecord.git ~/kaamkorecord
 cd ~/kaamkorecord
 cp deploy/env.example .env     # fill it in; keep the old secret key and VAPID keys
 ./scripts/deploy.sh

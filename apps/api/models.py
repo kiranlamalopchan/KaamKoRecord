@@ -32,6 +32,10 @@ class MobileRelease(models.Model):
     message = models.CharField(max_length=200, default='Enjoy the latest improvements. Tap to open your app store.')
     android_url = models.URLField(default='https://play.google.com/store/apps/details?id=com.kiranlama.merokaam')
     ios_url = models.URLField(default='https://apps.apple.com/app/id6813073450')
+    required = models.BooleanField(
+        'everyone must update', default=False,
+        help_text='Phones on an older version see a full-screen "Update your app" page and can do nothing else '
+                  'until they install this one. Only tick it once this version is live in both stores.')
     created_at = models.DateTimeField(auto_now_add=True)
     announced_at = models.DateTimeField(null=True, blank=True, editable=False)
 

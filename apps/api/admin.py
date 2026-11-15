@@ -17,7 +17,7 @@ class SupportReportAdmin(admin.ModelAdmin):
 
 @admin.register(MobileRelease)
 class MobileReleaseAdmin(admin.ModelAdmin):
-    list_display = ('version', 'created_at', 'announced_at')
+    list_display = ('version', 'required', 'created_at', 'announced_at')
     readonly_fields = ('created_at', 'announced_at')
     actions = ('announce',)
 

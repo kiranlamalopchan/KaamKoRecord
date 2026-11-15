@@ -275,4 +275,14 @@ export const ne: Record<string, string> = {
   "Privacy & security": "गोपनीयता र सुरक्षा",
   "Help": "सहयोग",
   "Couldn't open that page": "त्यो पेज खोल्न सकिएन",
+
+  // ---- a version that must be updated (ui/UpdateRequired) -----------------
+  "New update available": "नयाँ अपडेट उपलब्ध छ",
+  "Update your app to the latest version": "आफ्नो एप नयाँ संस्करणमा अपडेट गर्नुहोस्",
+  "A new version of KaamKoRecord is ready in {store}. Update it to keep recording your shifts.": "KaamKoRecord को नयाँ संस्करण {store} मा तयार छ। आफ्ना सिफ्टहरू रेकर्ड गरिरहन अपडेट गर्नुहोस्।",
+  "the App Store": "एप स्टोर",
+  "Google Play": "गुगल प्ले",
+  "You have {current} · Latest {latest}": "तपाईंसँग {current} · नयाँ {latest}",
+  "We couldn't open the store. Please try again.": "स्टोर खोल्न सकिएन। फेरि प्रयास गर्नुहोस्।",
+  "Update now": "अहिले अपडेट गर्नुहोस्",
 };
