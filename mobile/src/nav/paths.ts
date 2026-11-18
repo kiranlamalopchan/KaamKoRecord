@@ -28,6 +28,7 @@ export function targetFor(path: string): Target {
   // Things with a screen here and no page of their own on the site: the
   // link is a site page that exists, with a word saying what was meant.
   if (p === "/timesheet" && q.get("go") === "roster") return { screen: "/roster" };
+  if (p === "/profile" && q.get("conversation")) return { screen: `/messages/c/${encodeURIComponent(q.get("conversation") as string)}` };
   if (p === "/profile" && q.get("chat")) return { screen: `/messages/${encodeURIComponent(q.get("chat") as string)}` };
   if (p === "/timesheet") return { screen: "/clock" };
   if (p === "/timesheet/shifts") return { screen: "/timesheet" };

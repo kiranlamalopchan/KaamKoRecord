@@ -1,0 +1,25 @@
+# The edge nginx. Lives on the VPS at /opt/edge (copied from KaamKoRecord's deploy/edge). It
+# changes only when a site is added or removed, and neither site's deploy touches it.
+#   cd /opt/edge && docker compose up -d
+name: edge
+
+services:
+  nginx:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - edge
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  edge:
+    external: true

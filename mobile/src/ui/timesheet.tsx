@@ -230,7 +230,7 @@ export function DateTimeField({ value, onChange, placeholder, testID, invalid }:
         autoCapitalize="none"
         autoCorrect={false}
         testID={testID}
-        style={[styles.input, { backgroundColor: t.dark ? t.surface3 : t.surface2, borderColor: invalid ? t.danger : "transparent", color: t.text }]}
+        style={[styles.input, { backgroundColor: t.field, borderColor: invalid ? t.danger : t.fieldLine, color: t.text }]}
       />
     );
   }
@@ -239,11 +239,11 @@ export function DateTimeField({ value, onChange, placeholder, testID, invalid }:
   return (
     <View style={{ gap: sp[2] }}>
       <View style={{ flexDirection: "row", gap: sp[2] }}>
-        <Pressable onPress={() => setShow("date")} style={[styles.input, styles.pickBtn, { backgroundColor: t.dark ? t.surface3 : t.surface2, borderColor: invalid ? t.danger : "transparent" }]} testID={testID}>
+        <Pressable onPress={() => setShow("date")} style={[styles.input, styles.pickBtn, { backgroundColor: t.field, borderColor: invalid ? t.danger : t.fieldLine }]} testID={testID}>
           <Ionicons name="calendar-outline" size={18} color={t.muted} />
           <Text style={{ color: parsed ? t.text : t.muted, fontSize: 16 }}>{parsed ? parsed.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" }) : placeholder || "Pick a day"}</Text>
         </Pressable>
-        <Pressable onPress={() => setShow("time")} style={[styles.input, styles.pickBtn, { backgroundColor: t.dark ? t.surface3 : t.surface2, borderColor: invalid ? t.danger : "transparent", flex: 0, minWidth: 110 }]}>
+        <Pressable onPress={() => setShow("time")} style={[styles.input, styles.pickBtn, { backgroundColor: t.field, borderColor: invalid ? t.danger : t.fieldLine, flex: 0, minWidth: 110 }]}>
           <Ionicons name="time-outline" size={18} color={t.muted} />
           <Text style={{ color: parsed ? t.text : t.muted, fontSize: 16 }}>{parsed ? parsed.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "—"}</Text>
         </Pressable>

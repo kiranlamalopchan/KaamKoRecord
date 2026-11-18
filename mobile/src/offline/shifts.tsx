@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { timesheet, type ShiftInput } from "@/api";
 import { ApiError } from "@/api/client";
 import { readPrivate, writePrivate, usePrivateScope, usePrivateState } from "@/storage/private";
+import { syncClockActions, usePendingClockActions } from "./clock";
 
 export type PendingShift = { id: string; input: ShiftInput; created: string; error?: string; review?: boolean };
 const KEY = "pending-shifts";
@@ -46,18 +47,20 @@ export const usePendingShifts = () => usePrivateState<PendingShift[]>(KEY, []);
 export function OfflineSync() {
   const scope = usePrivateScope();
   const [rows, , ready] = usePendingShifts();
+  const [clockRows, , clockReady] = usePendingClockActions();
   const client = useQueryClient();
   const pending = rows.filter(row => !row.review).map(row => row.id).join(",");
+  const clockPending = clockRows.filter(row => !row.review).map(row => row.client_id).join(",");
   useEffect(() => {
-    if (!scope || !ready || !pending) return;
+    if (!scope || !ready || !clockReady || (!pending && !clockPending)) return;
     let active = true;
-    const run = () => syncShifts(scope, () => active).then(() => {
+    const run = () => syncClockActions(scope, () => active).then(() => syncShifts(scope, () => active)).then(() => {
       if (active) for (const key of ["timesheet", "calendar", "clock", "pay", "home"]) void client.invalidateQueries({ queryKey: [key] });
     }).catch(() => {});
     void run();
     const timer = setInterval(() => { if (AppState.currentState === "active") void run(); }, 30_000);
     const subscription = AppState.addEventListener("change", state => { if (state === "active") void run(); });
     return () => { active = false; clearInterval(timer); subscription.remove(); };
-  }, [scope, ready, pending, client]);
+  }, [scope, ready, clockReady, pending, clockPending, client]);
   return null;
 }

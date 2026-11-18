@@ -4,17 +4,19 @@
  */
 import { useCallback } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as Crypto from "expo-crypto";
 
 import { api, apiUrl, FilePart, formWith } from "./client";
 import { CHUNK_AT, sizeOf, uploadInPieces } from "./chunked";
 import type {
-  Activity, CalendarPage, ClockState, Trend, TrendRange, Cycles, Going, MorePage, NewShift, PayPage, PayslipRead, ShiftDetail, ShiftInput,
+  Activity, CalendarPage, ClockActionMeta, ClockState, Trend, TrendRange, Cycles, Going, MorePage, NewShift, PayPage, PayslipRead, ShiftDetail, ShiftInput,
   TimesheetPage, Workplace, WorkplaceBrief, WorkplaceInput, WorkplacesPage,
   Friends as FriendsPage, PeoplePage, PhotoRead, PluImportable, PluImported,
-  Home, HolidayCard, Me, Notice, Notification, Page, PersonPage, PluItem, ReactionTally,
+  Home, HolidayCard, Me, Notice, Notification, Page, Person, PersonPage, PluItem, ReactionTally,
   Reactors, Story, StoryPerson, TrayRow, Visibility,
   BlockedPerson, ReportKind, ReportReason,
   ChatMessage, ChatThread, ChatThreads, PayslipCheck, PlannedInput, RosterPage,
+  ChatMember, ConvoMessage, ConvoPage, ConvoSummary, GalleryItem, Inbox, LinkItem,
 } from "./types";
 
 export * from "./types";
@@ -49,6 +51,8 @@ export const me = {
   registerDevice: (token: string, platform: string, name: string) =>
     api("devices/", { method: "POST", body: { token, platform, name } }),
   unregisterDevice: (token: string) => api("devices/", { method: "DELETE", body: { token } }),
+  devicePreferences: (token: string) => api<NotificationPreferences>("devices/preferences/", { method: "POST", body: { token } }),
+  saveDevicePreferences: (token: string, choices: NotificationPreferences) => api<NotificationPreferences>("devices/preferences/", { method: "PUT", body: { token, ...choices } }),
   /**
    * A new password, behind the old one. A fresh token comes back with it:
    * one token covers every phone, so the old one retires with the password
@@ -62,6 +66,8 @@ export const me = {
   /** The account and everything in it, behind the password. */
   deleteAccount: (password: string, socialReauth?: string) => api("me/", { method: "DELETE", body: { password, social_reauth: socialReauth } }),
 };
+
+export type NotificationPreferences = { messages: boolean; roster: boolean; notices: boolean; pay: boolean; friends: boolean };
 
 export function useMe() {
   return useQuery({ queryKey: ["me"], queryFn: me.get, staleTime: 60_000 });
@@ -337,10 +343,10 @@ function stamp() {
 
 export const timesheet = {
   clock: (workplace?: number) => api<ClockState>("timesheet/clock/", { query: { workplace } }),
-  clockIn: (workplace: number) => api<ClockState>("timesheet/clock-in/", { method: "POST", body: { workplace, ...stamp() } }),
-  startBreak: () => api<ClockState>("timesheet/break/start/", { method: "POST", body: stamp() }),
-  endBreak: () => api<ClockState>("timesheet/break/end/", { method: "POST", body: stamp() }),
-  clockOut: () => api<ClockState>("timesheet/clock-out/", { method: "POST", body: stamp() }),
+  clockIn: (workplace: number, meta?: ClockActionMeta) => api<ClockState>("timesheet/clock-in/", { method: "POST", body: { workplace, ...(meta || { ...stamp(), client_id: Crypto.randomUUID() }) } }),
+  startBreak: (meta?: ClockActionMeta) => api<ClockState>("timesheet/break/start/", { method: "POST", body: meta || { ...stamp(), client_id: Crypto.randomUUID() } }),
+  endBreak: (meta?: ClockActionMeta) => api<ClockState>("timesheet/break/end/", { method: "POST", body: meta || { ...stamp(), client_id: Crypto.randomUUID() } }),
+  clockOut: (meta?: ClockActionMeta) => api<ClockState>("timesheet/clock-out/", { method: "POST", body: meta || { ...stamp(), client_id: Crypto.randomUUID() } }),
   page: (page: number, workplace?: number | null) => api<TimesheetPage>("timesheet/", { query: { page, workplace: workplace ?? undefined } }),
   calendar: (year?: number, month?: number, day?: string | null) => api<CalendarPage>("timesheet/calendar/", { query: { year, month, day: day ?? undefined } }),
   trend: (range: TrendRange, workplace?: number | null) => api<Trend>("timesheet/trend/", { query: { range, workplace: workplace ?? undefined } }),
@@ -366,6 +372,7 @@ export const timesheet = {
   more: () => api<MorePage>("timesheet/more/"),
   activity: () => api<Activity>("me/activity/"),
   statementUrl: (from: string, to: string, workplace?: number | "") => apiUrl(`timesheet/statement/?from=${from}&to=${to}${workplace ? `&workplace=${workplace}` : ""}`),
+  statementCsvUrl: (from: string, to: string, workplace?: number | "") => apiUrl(`timesheet/export.csv?from=${from}&to=${to}${workplace ? `&workplace=${workplace}` : ""}`),
 };
 
 /**
@@ -451,30 +458,92 @@ export function useRosterChanged() {
 // ---- messages -----------------------------------------------------------------
 
 export const chat = {
-  threads: () => api<ChatThreads>("messages/"),
+  threads: (query?: { q?: string; unread?: boolean; archived?: boolean }) => api<ChatThreads>("messages/", { query: { q: query?.q, unread: query?.unread ? 1 : undefined, archived: query?.archived ? 1 : undefined } }),
   unread: () => api<{ unread: number }>("messages/unread/"),
   thread: (username: string, before?: number) => api<ChatThread>(`messages/${encodeURIComponent(username)}/`, { query: { before } }),
-  send: (username: string, body: string) => api<ChatMessage>(`messages/${encodeURIComponent(username)}/`, { method: "POST", body: { body } }),
+  send: (username: string, body: string, clientId?: string, replyTo?: number) => api<ChatMessage>(`messages/${encodeURIComponent(username)}/`, { method: "POST", body: { body, client_id: clientId, reply_to: replyTo } }),
+  sendPhoto: (username: string, photo: FilePart, body = "", clientId?: string, replyTo?: number) => api<ChatMessage>(`messages/${encodeURIComponent(username)}/`, { method: "POST", form: formWith({ photo, body, client_id: clientId, reply_to: replyTo }) }),
+  typing: (username: string) => api(`messages/${encodeURIComponent(username)}/typing/`, { method: "POST" }),
+  react: (id: number, emoji: string) => api<ChatMessage>(`messages/item/${id}/react/`, { method: "POST", body: { emoji } }),
+  edit: (id: number, body: string) => api<ChatMessage>(`messages/item/${id}/`, { method: "PATCH", body: { body } }),
+  unsend: (id: number) => api<ChatMessage>(`messages/item/${id}/`, { method: "DELETE" }),
+  settings: (conversationId: string, change: { pinned?: boolean; muted?: boolean; archived?: boolean; unread?: boolean }) => api(`messages/conversations/${encodeURIComponent(conversationId)}/settings/`, { method: "PATCH", body: change }),
+  people: (q = "") => api<{ people: Person[] }>("messages/people/", { query: { q } }),
+  realtimeTicket: () => api<{ ticket: string; expires_in: number; path: string }>("messages/realtime-ticket/", { method: "POST" }),
 };
 
-export function useChatThreads() {
-  return useQuery({ queryKey: ["chat"], queryFn: chat.threads, staleTime: 10_000, refetchInterval: 30_000 });
+/** Conversations by their stable id — direct and group. See apps/api/views/conversations.py. */
+export const convo = {
+  inbox: (query: { q?: string; unread?: boolean; archived?: boolean; before?: number | null } = {}) =>
+    api<Inbox>("messages/inbox/", { query: { q: query.q || undefined, unread: query.unread ? 1 : undefined, archived: query.archived ? 1 : undefined, before: query.before ?? undefined } }),
+  unread: () => api<{ unread: number }>("messages/inbox/unread/"),
+  openDirect: (username: string) => api<ConvoSummary>("messages/inbox/", { method: "POST", body: { username } }),
+  createGroup: (title: string, usernames: string[]) => api<ConvoSummary>("messages/inbox/", { method: "POST", body: { title, usernames } }),
+  page: (id: string, cursor: { before?: number; after?: number } = {}) => api<ConvoPage>(`messages/c/${id}/`, { query: cursor }),
+  send: (id: string, body: string, clientId: string, replyTo?: number) => api<ConvoMessage>(`messages/c/${id}/`, { method: "POST", body: { body, client_id: clientId, reply_to: replyTo } }),
+  update: (id: string, change: { pinned?: boolean; muted?: boolean; archived?: boolean; unread?: boolean; title?: string; remove_photo?: boolean }) => api<ConvoSummary>(`messages/c/${id}/`, { method: "PATCH", body: change }),
+  setPhoto: (id: string, photo: FilePart) => api<ConvoSummary>(`messages/c/${id}/`, { method: "PATCH", form: formWith({ photo }) }),
+  hideAll: (id: string) => api(`messages/c/${id}/`, { method: "DELETE" }),
+  leave: (id: string) => api(`messages/c/${id}/`, { method: "DELETE", query: { leave: 1 } }),
+  typing: (id: string) => api(`messages/c/${id}/typing/`, { method: "POST" }),
+  read: (id: string, messageId: number) => api(`messages/c/${id}/read/`, { method: "POST", body: { message_id: messageId } }),
+  members: (id: string) => api<{ members: ChatMember[] }>(`messages/c/${id}/members/`),
+  addMembers: (id: string, usernames: string[]) => api<{ members: ChatMember[] }>(`messages/c/${id}/members/`, { method: "POST", body: { usernames } }),
+  removeMember: (id: string, username: string) => api(`messages/c/${id}/members/${encodeURIComponent(username)}/`, { method: "DELETE" }),
+  setRole: (id: string, username: string, role: "admin" | "member") => api<{ members: ChatMember[] }>(`messages/c/${id}/members/${encodeURIComponent(username)}/`, { method: "PATCH", body: { role } }),
+  gallery: (id: string, kind: "photo" | "video" | "audio" | "file" | "link", before?: number | null) => api<{ items: (GalleryItem | LinkItem)[]; next: number | null }>(`messages/c/${id}/media/`, { query: { kind, before: before ?? undefined } }),
+  search: (id: string, q: string) => api<{ results: { id: number; body: string; mine: boolean; sender: string; at: string; day: string }[] }>(`messages/c/${id}/search/`, { query: { q } }),
+  pins: (id: string) => api<{ messages: ConvoMessage[] }>(`messages/c/${id}/pins/`),
+  delivered: (messageId: number) => api(`messages/item/${messageId}/delivered/`, { method: "POST" }),
+  hide: (messageId: number) => api(`messages/item/${messageId}/hide/`, { method: "POST" }),
+  pin: (messageId: number) => api<{ pinned: boolean }>(`messages/item/${messageId}/pin/`, { method: "POST" }),
+  forward: (messageId: number, conversationIds: string[]) => api<{ sent: string[]; failed: string[] }>(`messages/item/${messageId}/forward/`, { method: "POST", body: { conversation_ids: conversationIds } }),
+  report: (messageId: number, reason: string) => api(`messages/item/${messageId}/report/`, { method: "POST", body: { reason } }),
+};
+
+export function useChatInbox(query: { q?: string; unread?: boolean; archived?: boolean } = {}) {
+  return useInfiniteQuery({
+    queryKey: ["chat", "inbox", query],
+    queryFn: ({ pageParam }) => convo.inbox({ ...query, before: pageParam }),
+    initialPageParam: null as number | null,
+    getNextPageParam: (last: Inbox) => last.next,
+    staleTime: 10_000,
+    refetchInterval: 60_000,
+  });
 }
 
+/** The newest page of a conversation. The realtime stream refreshes it; the slow poll is the fallback. */
+export function useConvo(id: string, focused = true) {
+  return useQuery({ queryKey: ["chat", "convo", id], queryFn: () => convo.page(id), enabled: focused && !!id, refetchInterval: focused ? 15_000 : false });
+}
+
+export function useConvoMembers(id: string) {
+  return useQuery({ queryKey: ["chat", "members", id], queryFn: () => convo.members(id), enabled: !!id });
+}
+
+export function useChatThreads(query: { q?: string; unread?: boolean; archived?: boolean } = {}) {
+  return useQuery({ queryKey: ["chat", "threads", query], queryFn: () => chat.threads(query), staleTime: 10_000, refetchInterval: 30_000 });
+}
+
+export function useChatPeople(q: string) {
+  return useQuery({ queryKey: ["chat-people", q], queryFn: () => chat.people(q), staleTime: 20_000 });
+}
+
+/** Unread messages across every conversation, direct and group (muted ones not counted). */
 export function useChatUnread() {
-  return useQuery({ queryKey: ["chat-unread"], queryFn: chat.unread, staleTime: 20_000, refetchInterval: 60_000 });
+  return useQuery({ queryKey: ["chat-unread"], queryFn: convo.unread, staleTime: 20_000, refetchInterval: 60_000 });
 }
 
 /** The open conversation asks again every few seconds: there is no socket, and a reply should not wait for a pull. */
 export function useChatThread(username: string, focused = true) {
-  return useQuery({ queryKey: ["chat", username], queryFn: () => chat.thread(username), enabled: focused, refetchInterval: focused ? 5_000 : false });
+  return useQuery({ queryKey: ["chat", "thread", username], queryFn: () => chat.thread(username), enabled: focused, refetchInterval: focused ? 5_000 : false });
 }
 
 /** After a message is sent or read: the list of conversations and the unread count (not the open thread, which asks for itself). */
 export function useChatChanged() {
   const client = useQueryClient();
   return useCallback(() => {
-    client.invalidateQueries({ queryKey: ["chat"], exact: true });
+    client.invalidateQueries({ queryKey: ["chat"] });
     client.invalidateQueries({ queryKey: ["chat-unread"] });
   }, [client]);
 }

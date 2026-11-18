@@ -1,8 +1,9 @@
 # KaamKoRecord on the VPS, next to Bideshkosathi. Run it through scripts/deploy.sh.
 #
-# Bideshkosathi's nginx is the front door for both sites: it answers kaamkorecord.com, serves the
-# static files and public photos straight from the volumes below, and passes everything else to
-# "kaamkorecord-web" over the shared "edge" network. The database, uploads and settings stay here.
+# KaamKoRecord's nginx (below) answers kaamkorecord.com: it holds the HTTPS certificate, serves the
+# static files and public photos, and passes everything else to "web". In front of it is the edge
+# nginx (deploy/edge, at /opt/edge on the VPS), the one thing on ports 80/443, which sends each
+# domain to its own site's nginx over the shared "edge" network. Bideshkosathi has its own nginx.
 x-app: &app
   build: .
   image: kaamkorecord:latest
@@ -13,6 +14,7 @@ x-app: &app
   volumes:
     - data:/data
     - media:/app/media
+    - private_media:/app/private_media
     - static:/app/staticfiles
   logging:
     driver: json-file
@@ -23,17 +25,69 @@ x-app: &app
 services:
   web:
     <<: *app
+    environment:
+      SQLITE_PATH: /data/db.sqlite3
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+    networks:
+      default:
+      # Only while Bideshkosathi's nginx still answers kaamkorecord.com (before the move to the edge
+      # nginx). Remove once deploy/edge/README.md's cutover is done.
+      edge:
+        aliases: [kaamkorecord-web]
+
+  # KaamKoRecord's nginx. Reached only through the edge nginx; publishes no ports itself.
+  nginx:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    entrypoint: ["sh", "/opt/nginx/start.sh"]
+    environment:
+      KAAMKORECORD_DOMAIN: ${KAAMKORECORD_DOMAIN:-kaamkorecord.com}
+    volumes:
+      - ./deploy/nginx:/opt/nginx:ro
+      - static:/srv/kaamkorecord/static:ro
+      - media:/srv/kaamkorecord/media:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
     networks:
       default:
       edge:
-        aliases: [kaamkorecord-web]
+        aliases: [kaamkorecord-nginx]
+    depends_on:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Renews KaamKoRecord's certificate when it is close to expiring; nginx reloads it by itself.
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    init: true
+    entrypoint: ["sh", "-c", "while :; do certbot renew --webroot --webroot-path /var/www/certbot --quiet; sleep 43200; done"]
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
 
   # Timesheet reminders, expired stories and public holidays. See scripts/jobs.sh.
   jobs:
     <<: *app
     command: ["sh", "scripts/jobs.sh"]
 
-# Made by scripts/deploy.sh, so Bideshkosathi's nginx can mount the same ones.
+# Made by scripts/deploy.sh, so they survive `docker compose down`.
 volumes:
   data:
     name: kaamkorecord_data
@@ -41,8 +95,17 @@ volumes:
   media:
     name: kaamkorecord_media
     external: true
+  private_media:
+    name: kaamkorecord_private_media
+    external: true
   static:
     name: kaamkorecord_static
+    external: true
+  letsencrypt:
+    name: kaamkorecord_letsencrypt
+    external: true
+  certbot_www:
+    name: kaamkorecord_certbot_www
     external: true
 
 networks:

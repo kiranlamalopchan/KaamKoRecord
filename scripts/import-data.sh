@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # On the VPS: load a copy of the old server's database and uploads into KaamKoRecord.
 #   ./scripts/import-data.sh ~/kaamkorecord-data.tgz
-# The file holds db.sqlite3 and the media folder, made on the old server with
-#   cd ~/MyWork && tar czf ~/kaamkorecord-data.tgz db.sqlite3 media
+# The file holds db.sqlite3 and upload folders, made on the old server with
+#   cd ~/MyWork && tar czf ~/kaamkorecord-data.tgz db.sqlite3 media private_media
 # This REPLACES the database and uploads here, so run it before people start using this server.
 set -euo pipefail
 
@@ -28,7 +28,8 @@ compose run --rm --no-deps --user root -v "${archive}:/import.tgz:ro" web sh -c 
   rm -f /data/db.sqlite3 /data/db.sqlite3-wal /data/db.sqlite3-shm /data/db.sqlite3-journal
   cp /tmp/import/db.sqlite3 /data/db.sqlite3
   if [ -d /tmp/import/media ]; then cp -a /tmp/import/media/. /app/media/; fi
-  chown -R app:app /data /app/media
+  if [ -d /tmp/import/private_media ]; then cp -a /tmp/import/private_media/. /app/private_media/; fi
+  chown -R app:app /data /app/media /app/private_media
 '
 compose run --rm --no-deps web python manage.py migrate --noinput
 

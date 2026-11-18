@@ -19,13 +19,40 @@ export function defaultServer(): string {
   return "http://localhost:8000";
 }
 
-/** Called once at start, before the first request. */
+/** Whether this build shows the address field on the sign-in screen. */
+export function canChooseServer(): boolean {
+  return __DEV__ || !!Constants.expoConfig?.extra?.devServerPicker;
+}
+
+/**
+ * Called once at start, before the first request.
+ *
+ * A store build has no address field, so it always uses its own server. An
+ * address saved by a test build on the same phone survives updates (and, on
+ * iOS, reinstalls, because it lives in the keychain); left alone it would
+ * pin the store build to a server it can no longer change. So a store build
+ * forgets it.
+ */
 export async function loadServer(): Promise<string> {
   if (chosen !== undefined) return serverUrl();
   try {
     chosen = await SecureStore.getItemAsync(KEY);
   } catch {
     chosen = null;
+  }
+  // The retired account host can survive an iOS reinstall in Keychain.
+  // Never let any build reconnect to it; fall back to this build's server.
+  let retired = false;
+  if (chosen) {
+    try { retired = new URL(clean(chosen)).hostname.toLowerCase().startsWith("butcher11643."); } catch { /* validation happens in the picker */ }
+  }
+  if (retired) {
+    chosen = null;
+    try { await SecureStore.deleteItemAsync(KEY); } catch { /* ignored for this session anyway */ }
+  }
+  if (chosen && !canChooseServer()) {
+    chosen = null;
+    try { await SecureStore.deleteItemAsync(KEY); } catch { /* ignored for this session anyway */ }
   }
   return serverUrl();
 }

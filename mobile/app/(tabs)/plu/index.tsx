@@ -29,7 +29,7 @@ export default function Plu() {
   const layout = useLayout();
   const router = useRouter();
   const deletion = useDeleteCatalogue();
-  const params = useLocalSearchParams<{ catalogue?: string; view?: string }>();
+  const params = useLocalSearchParams<{ catalogue?: string; view?: string; scan?: string }>();
   const catalogueId = params.catalogue ? Number(params.catalogue) : undefined;
   const [mode, setMode] = usePrivateState<"search" | "photo">("items-mode", "search");
   const [typed, setTyped] = usePrivateState(`items-query:${catalogueId || "default"}`, "");
@@ -44,6 +44,16 @@ export default function Plu() {
     const id = setTimeout(() => setQ(typed.trim()), 250);
     return () => clearTimeout(id);
   }, [typed]);
+
+  useEffect(() => {
+    const scan = String(params.scan || "").trim();
+    if (!scan) return;
+    setMode("search");
+    setTyped(scan);
+    setQ(scan);
+    setPagination({ q: scan, catalogueId, page: 1 });
+    router.setParams({ scan: undefined });
+  }, [params.scan, catalogueId, router, setMode, setTyped]);
 
   const page = pagination.q === q && pagination.catalogueId === catalogueId ? pagination.page : 1;
   const search = useCatalogueSearch(q, catalogueId, page);
@@ -128,7 +138,11 @@ export default function Plu() {
       {typed ? <Pressable onPress={() => { tick(); changeSearch(""); box.current?.focus(); }} accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={4}
         style={({ pressed }) => [styles.icon, { backgroundColor: pressed ? t.surface2 : "transparent" }]}>
         <Ionicons name="close-circle" size={20} color={t.muted} />
-      </Pressable> : hasPlu ? <Pressable onPress={photo} accessibilityRole="button" accessibilityLabel="Photo search" testID="plu-photo" hitSlop={4}
+      </Pressable> : hasPlu ? <Pressable onPress={() => router.push("/items/scanner" as never)} accessibilityRole="button" accessibilityLabel="Scan barcode" testID="barcode-scan" hitSlop={4}
+        style={({ pressed }) => [styles.icon, { backgroundColor: pressed ? t.surface2 : "transparent" }]}>
+        <Ionicons name="barcode-outline" size={22} color={t.text2} />
+      </Pressable> : null}
+      {hasPlu ? <Pressable onPress={photo} accessibilityRole="button" accessibilityLabel="Photo search" testID="plu-photo" hitSlop={4}
         style={({ pressed }) => [styles.icon, { backgroundColor: pressed ? t.surface2 : "transparent" }]}>
         <Ionicons name="camera-outline" size={21} color={t.text2} />
       </Pressable> : null}

@@ -5,7 +5,7 @@ import { timesheet, useActivity } from "@/api";
 import { useT } from "@/i18n";
 import { Button, Card, ErrorBanner, Field, Input, Page, PageTitle, Screen, usePullRefresh } from "./index";
 import { SkeletonForm, SkeletonRows } from "./Skeleton";
-import { openPdf } from "./pdf";
+import { openFile, openPdf } from "./pdf";
 import { radius, sp, useTheme } from "./theme";
 import { Choices } from "./timesheet";
 
@@ -34,7 +34,7 @@ export function StatementPage() {
     }
   }, [st]);
 
-  const download = async () => {
+  const download = async (format: "pdf" | "csv" = "pdf") => {
     if (busy) return;
     const first = dayNumber(from), last = dayNumber(to);
     const next: Record<string, string> = {};
@@ -47,7 +47,10 @@ export function StatementPage() {
     setErrors(next); setFailure(null);
     if (Object.keys(next).length) return;
     setBusy(true);
-    try { await openPdf(timesheet.statementUrl(from, to, workplace), `statement-${from}-to-${to}.pdf`); }
+    try {
+      if (format === "pdf") await openPdf(timesheet.statementUrl(from, to, workplace), `statement-${from}-to-${to}.pdf`);
+      else await openFile(timesheet.statementCsvUrl(from, to, workplace), `timesheet-${from}-to-${to}.csv`, "text/csv");
+    }
     catch (error) { setFailure(error); }
     finally { setBusy(false); }
   };
@@ -73,9 +76,10 @@ export function StatementPage() {
           <Choices value={workplace} onChange={setWorkplace} options={[{ value: "" as number | "", label: tr("All workplaces") }, ...st.workplaces.map((w) => ({ value: w.id as number | "", label: w.name }))]} />
         </Field> : null}
         {Object.keys(errors).length ? <Text accessibilityRole="alert" style={{ color: t.danger, fontSize: 14 }}>{tr("Check the highlighted fields.")}</Text> : null}
-        {failure ? <ErrorBanner error={failure} onRetry={download} /> : null}
-        <Button title={tr("Download PDF")} icon="download-outline" onPress={download} busy={busy} testID="statement-download" />
-        <Text style={{ color: t.muted, fontSize: 13, lineHeight: 19 }}>{tr("Save or share the PDF using your phone's share sheet.")}</Text>
+        {failure ? <ErrorBanner error={failure} onRetry={() => download("pdf")} /> : null}
+        <Button title={tr("Download PDF")} icon="document-text-outline" onPress={() => download("pdf")} busy={busy} testID="statement-download" />
+        <Button title={tr("Export CSV")} kind="plain" icon="grid-outline" onPress={() => download("csv")} disabled={busy} testID="statement-csv" />
+        <Text style={{ color: t.muted, fontSize: 13, lineHeight: 19 }}>{tr("Save or share the PDF or CSV using your phone's share sheet.")}</Text>
       </Card> : null}
     </Page>
   </Screen>;

@@ -6,6 +6,7 @@ would — then checks the database the way the site's own tests do, since the
 whole point is that a phone and a browser land on the same rows.
 """
 
+import csv
 import io
 from datetime import date
 from pathlib import Path
@@ -126,6 +127,15 @@ class MeTests(ApiTestCase):
         self.assertEqual(bad.status_code, 400)
         self.assertIn("email", bad.json()["fields"])
 
+    def test_notification_choices_keep_the_push_token_out_of_the_url(self):
+        token = "ExponentPushToken[private-phone]"
+        self.api("post", "devices", {"token": token, "platform": "ios"})
+        read = self.api("post", "device_preferences", {"token": token})
+        self.assertEqual(read.status_code, 200)
+        saved = self.api("put", "device_preferences", {"token": token, "messages": False})
+        self.assertFalse(saved.json()["messages"])
+        self.assertEqual(self.api("get", "devices", {"token": token}).status_code, 405)
+
     def test_admins_are_marked_wherever_a_person_is_sent(self):
         self.assertFalse(self.api("get", "me").json()["is_admin"])
         self.sam.is_staff = True
@@ -236,6 +246,13 @@ class HomeTests(ApiTestCase):
         self.assertEqual([p["username"] for p in friends["people"]], ["sam"])
         self.assertEqual(set(friends["people"][0]), {"username", "name", "initial", "hue", "photo", "is_live", "is_me", "is_admin"})
 
+
+    def test_the_hub_says_what_a_public_holiday_pays_at_your_job(self):
+        from decimal import Decimal
+        from apps.timeclock.models import Workplace
+        self.assertIsNone(self.api("get", "home").json()["holiday_rate"])
+        Workplace.objects.create(user=self.kiran, name="Courtlands", is_default=True, public_holiday_multiplier=Decimal("2.5"))
+        self.assertEqual(self.api("get", "home").json()["holiday_rate"], 2.5)
 
 class BoardTests(ApiTestCase):
     def test_posting_reads_back_and_tells_the_room(self):
@@ -839,6 +856,23 @@ class TimesheetTests(ApiTestCase):
         self.assertEqual(self.api("post", "clock_out").status_code, 400)
         self.assertEqual(self.api("post", "clock_in", {}).json()["detail"], "Pick a workplace before clocking in.")
 
+    def test_a_retried_clock_action_only_happens_once(self):
+        from apps.timeclock.models import Shift
+
+        action = "3cb323de-45ce-41a7-8d21-e6e95b74a51d"
+        first = self.api("post", "clock_in", {"workplace": self.shop.pk, "client_id": action})
+        replay = self.api("post", "clock_in", {"workplace": self.shop.pk, "client_id": action})
+        self.assertEqual((first.status_code, replay.status_code), (200, 200))
+        self.assertTrue(replay.json()["replayed"])
+        self.assertEqual(Shift.objects.filter(user=self.kiran).count(), 1)
+
+    def test_weekend_and_overtime_rates_price_a_shift(self):
+        self.shop.hourly_rate = 20
+        self.shop.saturday_multiplier = 1.5
+        self.shop.overtime_after_hours = 8
+        self.shop.overtime_multiplier = 2
+        self.assertEqual(self.shop.gross_for_span(10, date(2026, 11, 21), self.kiran), 320)
+
     def _shift(self, days_ago, hours=8, workplace=None):
         from datetime import datetime, time, timedelta
 
@@ -1081,6 +1115,21 @@ class TimesheetTests(ApiTestCase):
         resp = self.api("get", "statement", {"from": activity["statement"]["this_month"][0], "to": activity["statement"]["this_month"][1]})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp["Content-Type"], "application/pdf")
+
+    def test_csv_export_neutralises_spreadsheet_formulas(self):
+        self.shop.name = "=HYPERLINK(\"bad\")"
+        self.shop.save(update_fields=["name"])
+        shift = self._shift(1)
+        shift.note = " @SUM(1+1)"
+        shift.save(update_fields=["note"])
+        day = timezone.localtime(shift.clock_in).date().isoformat()
+
+        response = self.api("get", "statement_csv", {"from": day, "to": day})
+
+        self.assertEqual(response.status_code, 200)
+        row = list(csv.reader(io.StringIO(response.content.decode())))[1]
+        self.assertTrue(row[1].startswith("'="))
+        self.assertTrue(row[-1].startswith("' @"))
 
 
 class ModerationApiTests(ApiTestCase):

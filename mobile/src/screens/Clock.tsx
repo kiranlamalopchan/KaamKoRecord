@@ -10,7 +10,10 @@ import { useRouter } from "expo-router";
 import { AnalogClock } from "@/ui/AnalogClock";
 import { Ionicons } from "@expo/vector-icons";
 
-import { timesheet, useClock, useRoster, useTimesheetChanged, type ClockState } from "@/api";
+import { useClock, useRoster, useTimesheetChanged, type ClockState } from "@/api";
+import { unreachable } from "@/api/client";
+import { applyClockAction, makeClockAction, queueClockAction, sendClockAction, usePendingClockActions, type ClockActionKind } from "@/offline/clock";
+import { usePrivateScope, usePrivateState } from "@/storage/private";
 import { useT } from "@/i18n";
 import { errorMessage } from "@/api/errors";
 import { Button, Empty, ErrorBanner, Screen, useLayout, usePullRefresh } from "@/ui";
@@ -32,16 +35,19 @@ export default function Clock() {
   const DIAL = Math.round(Math.min(300, Math.max(220, layout.width - 2 * layout.gutter - 60)));
   const changed = useTimesheetChanged();
   const [state, setState] = useState<ClockState | null>(null);
+  const scope = usePrivateScope();
+  const [saved, setSaved, savedReady] = usePrivateState<ClockState | null>("last-clock-state-v1", null);
+  const [pendingActions] = usePendingClockActions();
   const [picked, setPicked] = useState<number | null>(null);
   // The job chosen drives the ask: the cap under the dial belongs to whichever
   // job is picked, and asking again is the only way to know what it is.
   const q = useClock(picked);
   const refresh = usePullRefresh(q.refetch);
   const [busy, setBusy] = useState(false);
-  const shown = state || q.data || null;
+  const shown = state || q.data || (savedReady ? saved : null);
   // Picked here, or else whichever the server said was yours.
   const selected = picked ?? shown?.selected ?? null;
-  useEffect(() => { if (q.data) setState(q.data); }, [q.data]);
+  useEffect(() => { if (q.data) { setState(q.data); setSaved(q.data); } }, [q.data, setSaved]);
 
   // The phone's clock may be off; count from the server's, as app.js does.
   const [skew, setSkew] = useState(0);
@@ -54,17 +60,23 @@ export default function Clock() {
     return () => clearInterval(id);
   }, []);
 
-  const act = async (what: () => Promise<ClockState>) => {
+  const act = async (action: ClockActionKind, workplace?: number) => {
+    const request = makeClockAction(action, workplace);
     setBusy(true);
     tap("heavy");
     try {
-      const next = await what();
+      const next = await sendClockAction(request);
       setState(next);
+      setSaved(next);
       success();
       changed();
       if (next.finished) router.push(`/shifts/${next.finished}`);
     } catch (e: any) {
-      notify(tr("The clock didn't move"), errorMessage(e));
+      if (unreachable(e) && scope && shown) {
+        await queueClockAction(scope, request);
+        const next = applyClockAction(shown, request);
+        setState(next); setSaved(next); success();
+      } else notify(tr("The clock didn't move"), errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -112,6 +124,7 @@ export default function Clock() {
               <StatusPill status={status} label={shift ? shift.status_label : tr("Not started")} />
               <Text style={{ color: t.muted, fontSize: 13 }}>{shown.today}</Text>
             </View>
+            {pendingActions.length ? <View accessibilityRole="alert" style={[styles.alert, { backgroundColor: alpha(t.warn, 0.16), borderColor: alpha(t.warn, 0.45) }]}><Ionicons name="cloud-offline-outline" size={18} color={t.warn} /><Text style={{ color: t.warn, flex: 1, fontSize: 14 }}>{tr("{count} clock action waiting to sync", { count: pendingActions.length })}</Text></View> : null}
             {shown.long_shift ? (
               <View style={[styles.alert, { backgroundColor: alpha(t.warn, 0.16), borderColor: alpha(t.warn, 0.45) }]}>
                 <Ionicons name="alert-circle-outline" size={18} color={t.warn} />
@@ -137,19 +150,19 @@ export default function Clock() {
                 ) : (
                   <Where name={where} />
                 )}
-                <BigButton title={tr("Clock in")} icon="time-outline" kind="go" busy={busy} onPress={() => selected && act(() => timesheet.clockIn(selected))} testID="clock-in" />
+                <BigButton title={tr("Clock in")} icon="time-outline" kind="go" busy={busy} onPress={() => selected && act("clock_in", selected)} testID="clock-in" />
               </>
             ) : status === "ON_BREAK" ? (
               <>
                 <Where name={where} />
-                <BigButton title={tr("End break")} icon="play" kind="go" busy={busy} onPress={() => act(timesheet.endBreak)} testID="end-break" />
+                <BigButton title={tr("End break")} icon="play" kind="go" busy={busy} onPress={() => act("end_break")} testID="end-break" />
               </>
             ) : (
               <>
                 <Where name={where} />
                 <View style={{ flexDirection: layout.compact ? "column" : "row", gap: sp[3] }}>
-                  <BigButton title={tr("Break")} icon="pause" kind="soft" busy={busy} onPress={() => act(timesheet.startBreak)} testID="start-break" style={layout.compact ? undefined : { flex: 1 }} />
-                  <BigButton title={tr("Clock out")} icon="stop" kind="stop" busy={busy} onPress={() => confirm(tr("Clock out?"), undefined, tr("Clock out"), () => act(timesheet.clockOut), false)} testID="clock-out" style={layout.compact ? undefined : { flex: 1 }} />
+                  <BigButton title={tr("Break")} icon="pause" kind="soft" busy={busy} onPress={() => act("start_break")} testID="start-break" style={layout.compact ? undefined : { flex: 1 }} />
+                  <BigButton title={tr("Clock out")} icon="stop" kind="stop" busy={busy} onPress={() => confirm(tr("Clock out?"), undefined, tr("Clock out"), () => act("clock_out"), false)} testID="clock-out" style={layout.compact ? undefined : { flex: 1 }} />
                 </View>
               </>
             )}

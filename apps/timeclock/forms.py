@@ -93,6 +93,7 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
         # (FortnightFields), not as the date the model keeps.
         fields = [
             "name", "address", "color", "pay_cycle", "paid_in", "hourly_rate",
+            "saturday_multiplier", "sunday_multiplier", "public_holiday_multiplier", "overtime_after_hours", "overtime_multiplier",
             "tax_scale", "study_loan", "tax_rate",
             "hours_limit", "limit_period",
             "week_starts_on", "month_starts_on",
@@ -105,6 +106,11 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
             "pay_cycle": "How this job pays",
             "paid_in": "How you're paid",
             "hourly_rate": "Hourly rate (optional)",
+            "saturday_multiplier": "Saturday rate multiplier",
+            "sunday_multiplier": "Sunday rate multiplier",
+            "public_holiday_multiplier": "Public holiday rate multiplier",
+            "overtime_after_hours": "Overtime starts after hours",
+            "overtime_multiplier": "Overtime rate multiplier",
             "tax_scale": "Your tax situation here",
             "study_loan": "I have a HELP or other study loan",
             "tax_rate": "Tax withheld %",
@@ -122,6 +128,11 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
             "color": forms.RadioSelect,
             "address": forms.TextInput(attrs={"placeholder": "Street, suburb"}),
             "hourly_rate": forms.NumberInput(attrs={"step": "0.01", "min": "0", "inputmode": "decimal"}),
+            "saturday_multiplier": forms.NumberInput(attrs={"step": "0.01", "min": "1", "max": "5", "inputmode": "decimal"}),
+            "sunday_multiplier": forms.NumberInput(attrs={"step": "0.01", "min": "1", "max": "5", "inputmode": "decimal"}),
+            "public_holiday_multiplier": forms.NumberInput(attrs={"step": "0.01", "min": "1", "max": "5", "inputmode": "decimal"}),
+            "overtime_after_hours": forms.NumberInput(attrs={"step": "0.25", "min": "0.25", "max": "24", "inputmode": "decimal"}),
+            "overtime_multiplier": forms.NumberInput(attrs={"step": "0.01", "min": "1", "max": "5", "inputmode": "decimal"}),
             "tax_rate": forms.NumberInput(
                 attrs={"step": "0.01", "min": "0", "max": "100",
                        "inputmode": "decimal", "placeholder": "e.g. 10.8"}
@@ -169,11 +180,20 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
         # Nor is how you are handed it: an older client that never saw the
         # field leaves a workplace as it was rather than failing on it.
         self.fields["paid_in"].required = False
+        # Penalty rates were added after the first mobile clients shipped.
+        # Missing values from those clients keep the workplace defaults
+        # instead of turning a compatible request into a validation error.
+        for name in (
+            "saturday_multiplier", "sunday_multiplier",
+            "public_holiday_multiplier", "overtime_multiplier",
+        ):
+            self.fields[name].required = False
         self._add_fortnight_fields()
         # Asked for in the order the cap is: which period, then where each
         # period starts — the fortnight's two answers beside the week's one.
         self.order_fields([
             "name", "address", "color", "pay_cycle", "paid_in", "hourly_rate",
+            "saturday_multiplier", "sunday_multiplier", "public_holiday_multiplier", "overtime_after_hours", "overtime_multiplier",
             "tax_scale", "study_loan", "tax_rate",
             "hours_limit", "limit_period",
             "week_starts_on", "fortnight_starts_on", "fortnight_phase", "month_starts_on",
@@ -215,6 +235,12 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
         left on the row to reappear if the job is switched back.
         """
         cleaned = super().clean()
+        for name in (
+            "saturday_multiplier", "sunday_multiplier",
+            "public_holiday_multiplier", "overtime_multiplier",
+        ):
+            if self.is_bound and name not in self.data:
+                cleaned[name] = getattr(self.instance, name)
         self._clean_tax(cleaned)
         if cleaned.get("paid_in") == PaidIn.CASH:
             cleaned["tax_rate"] = None

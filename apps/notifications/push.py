@@ -85,7 +85,7 @@ def send_to_user(user, payload):
     if configured():
         subscriptions = list(PushSubscription.objects.filter(user=user))
         reached += sum(send(subscription, payload) for subscription in subscriptions)
-    devices = list(Device.objects.filter(user=user))
+    devices = [device for device in Device.objects.filter(user=user) if device.allows(payload.get("kind"))]
     if devices:
         reached += send_expo(devices, payload)
     return reached
@@ -231,4 +231,5 @@ def payload_for(notification, unread):
         "url": reverse("notifications:go", args=[notification.pk]),
         "tag": notification.dedupe_key or f"n{notification.pk}",
         "badge": unread,
+        "kind": notification.kind,
     }

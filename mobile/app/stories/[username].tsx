@@ -5,6 +5,7 @@
  * react with; for your own, who has looked, and a way to take it down.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { StatusBar } from "expo-status-bar";
 import { AppState, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -194,6 +195,7 @@ export default function Viewer() {
   if (q.error) {
     return (
       <View style={[styles.stage, { justifyContent: "center", alignItems: "center", padding: sp[6] }]}>
+        <StatusBar style="light" />
         {/* The stage is a black screen with nothing else on it: a server
             address and a fetch failure read worse here than anywhere. */}
         <Text style={{ color: "#fff", textAlign: "center" }}>
@@ -213,6 +215,8 @@ export default function Viewer() {
 
   return (
     <View style={styles.stage}>
+      {/* White clock and battery on the black stage, in light mode too. */}
+      <StatusBar style="light" />
       {story.kind === "video" ? (
         <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
       ) : (

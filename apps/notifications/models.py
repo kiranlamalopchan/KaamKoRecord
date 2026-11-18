@@ -450,6 +450,14 @@ class Device(models.Model):
     platform = models.CharField(max_length=10, blank=True)
     name = models.CharField(max_length=120, blank=True)
 
+    # Per-phone interruption choices. The inbox still records everything;
+    # these only decide which events may buzz this particular device.
+    notify_messages = models.BooleanField(default=True)
+    notify_roster = models.BooleanField(default=True)
+    notify_notices = models.BooleanField(default=True)
+    notify_pay = models.BooleanField(default=True)
+    notify_friends = models.BooleanField(default=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     last_sent_at = models.DateTimeField(null=True, blank=True)
 
@@ -458,6 +466,16 @@ class Device(models.Model):
 
     def __str__(self):
         return f"{self.user}: {self.name or self.platform or self.expo_token[:24]}"
+
+    def allows(self, kind):
+        field = {
+            Kind.MESSAGE: "notify_messages",
+            Kind.ROSTER: "notify_roster",
+            Kind.TIMESHEET: "notify_pay",
+            Kind.FRIEND_REQUEST: "notify_friends",
+            Kind.FRIEND_ACCEPTED: "notify_friends",
+        }.get(kind, "notify_notices")
+        return bool(getattr(self, field, True))
 
     @classmethod
     def store(cls, user, expo_token, platform="", name=""):

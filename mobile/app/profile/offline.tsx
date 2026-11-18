@@ -3,16 +3,29 @@ import { Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Button, Card, Page, PageTitle, Screen } from "@/ui";
 import { usePendingShifts, removePending, retryPending, syncShifts } from "@/offline/shifts";
+import { removeClockActionsFrom, usePendingClockActions } from "@/offline/clock";
 import { usePrivateScope, writePrivate } from "@/storage/private";
 import { confirm, notify } from "@/ui/confirm";
 import { useTheme, sp } from "@/ui/theme";
+import { useT } from "@/i18n";
 
 export default function OfflineShifts() {
   const currentScope = React.useRef<string | null>(null);
   const [rows] = usePendingShifts(), scope = usePrivateScope(), t = useTheme(), router = useRouter();
+  const [clockRows] = usePendingClockActions();
+  const tr = useT();
   currentScope.current = scope;
-  return <Screen back><Page><PageTitle sub="Pending shifts stay on this device. A conflict is kept for review instead of being silently changed.">Offline shifts</PageTitle>
-    {!rows.length ? <Text style={{ color: t.muted }}>Everything has synced. No shifts are waiting.</Text> : null}
+  const clockWords = { clock_in: tr("Clock in"), start_break: tr("Start break"), end_break: tr("End break"), clock_out: tr("Clock out") };
+  return <Screen back><Page><PageTitle sub={tr("Pending shifts stay on this device. A conflict is kept for review instead of being silently changed.")}>{tr("Offline shifts")}</PageTitle>
+    {!rows.length && !clockRows.length ? <Text style={{ color: t.muted }}>{tr("Everything has synced. No shifts are waiting.")}</Text> : null}
+    {clockRows.map(row => <Card key={row.client_id}>
+      <Text style={{ color: t.text, fontWeight: "700" }}>{clockWords[row.action]} · {new Date(row.client_time).toLocaleString()}</Text>
+      <Text accessibilityRole={row.review ? "alert" : undefined} style={{ color: row.review ? t.danger : t.muted }}>{tr(row.error || "Waiting for a connection")}</Text>
+      {row.review ? <View style={{ gap: sp[2], marginTop: sp[3] }}>
+        <Button title={tr("Add as a past shift")} onPress={() => router.push("/shifts/new")} />
+        <Button title={tr("Discard this and later clock actions")} kind="ghost" onPress={() => confirm(tr("Discard these clock actions?"), tr("They will no longer be retried. Add the shift manually first if needed."), tr("Discard"), () => scope ? removeClockActionsFrom(scope, row.client_id).catch(() => notify(tr("Could not discard"))) : undefined)} />
+      </View> : null}
+    </Card>)}
     {rows.map(row => <Card key={row.id}>
       <Text style={{ color: t.text, fontWeight: "700" }}>{row.input.clock_in.replace("T", " ")} → {row.input.clock_out.replace("T", " ") || "Still running"}</Text>
       <Text style={{ color: row.review ? t.danger : t.muted }}>{row.error || "Waiting for a connection"}</Text>

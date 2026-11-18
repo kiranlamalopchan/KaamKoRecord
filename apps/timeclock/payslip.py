@@ -1,13 +1,16 @@
 """
 Reads a payslip so the workplace form can be filled from it.
 
-The three numbers the workplace form wants — an hourly rate, the share of
-pay withheld as tax, and how often the job pays — are all printed on every
-payslip, and copying them off one into three boxes is exactly the kind of
-sum that gets done wrong (tax withheld ÷ gross × 100, on a phone, from a
-PDF). So the form takes the payslip instead: the text is lifted off it,
-the figures are found by their labels, and the boxes are filled for the
-user to check before saving.
+What the form wants is all on a payslip, if not always in so many words:
+the hourly rate, the weekend, public holiday and overtime rates (as
+multiples of it), how often the job pays, and the tax — either the tax
+situation (the TFN declaration's answers, which no slip prints, but which
+the tax withheld gives away when it is exactly the ATO's figure for one of
+them) or, failing that, the share of pay withheld. Copying these off by hand
+is the kind of sum that goes wrong on a phone, so the form takes the payslip
+instead: the text is lifted off it, the figures found by their labels, and
+the boxes filled for the user to check before saving. The tax file number
+itself is never read or kept.
 
 Two kinds of file: a PDF, which is what most payroll systems send and which
 carries its text (pypdf); or a photo or screenshot of one, which is read
@@ -27,7 +30,8 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from .models import MAX_MONTH_START_DAY, PayCycle, fortnight_started_last_week
+from . import paygw
+from .models import MAX_MONTH_START_DAY, PayCycle, TaxScale, fortnight_started_last_week
 
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PAGES = 6
@@ -69,6 +73,18 @@ ORDINARY = re.compile(r"\b(ordinary|base|normal|standard|regular|hourly|casual|p
 HOURS_TOTAL = re.compile(r"\b(total\s+hours|hours\s+worked|hours\s+paid|hrs\s+worked|total\s+hrs)\b", re.I)
 PERIOD = re.compile(r"\b(pay\s*period|period\s*(?:ending|end|start|from|to)?|period)\b|\bfrom\b.*\bto\b|\bweek\s*ending\b|\bfortnight\s*ending\b", re.I)
 EMPLOYER = re.compile(r"\b(employer|company|business|trading\s*as|pay(?:ing)?\s*entity)\b\s*[:\-]?\s*(.+)", re.I)
+# The lines a slip pays above the ordinary rate, by what the form calls them.
+# Overtime first: "Saturday overtime" is overtime, not the Saturday rate.
+PENALTIES = [
+    ("overtime_multiplier", "Overtime rate", re.compile(r"\b(overtime|o/t|ot\s*[x×]?\s*\d|time\s*and\s*a\s*half|double\s*time)\b", re.I)),
+    ("public_holiday_multiplier", "Public holiday rate", re.compile(r"\b(public\s*hol(?:iday)?s?|pub\.?\s*hol|ph)\b", re.I)),
+    ("sunday_multiplier", "Sunday rate", re.compile(r"\b(sunday|sun)\b", re.I)),
+    ("saturday_multiplier", "Saturday rate", re.compile(r"\b(saturday|sat)\b", re.I)),
+]
+# Paid on top of time but not a weekend, holiday or overtime rate.
+NOT_PENALTY = re.compile(r"\b(annual|leave|sick|personal|carer|allowance|super|bonus|backpay|back\s*pay|reimburse)\b", re.I)
+# A study or training loan repayment printed as its own line.
+LOAN = re.compile(r"\b(help|hecs|stsl|sfss|vsl|ssl|tsl|study\s*(?:and\s*training\s*)?(?:support\s*)?loans?)\b", re.I)
 NOT_EMPLOYER = re.compile(r"\b(pay\s*slip|payslip|pay\s*advice|payment\s*summary|remittance|statement|employee|abn|acn|tfn)\b", re.I)
 
 
@@ -86,6 +102,13 @@ class Payslip:
     net: Decimal | None = None
     hours: Decimal | None = None
     rate: Decimal | None = None
+    # {"sunday_multiplier": Decimal("2"), ...}: only the ones the slip shows.
+    penalties: dict = field(default_factory=dict)
+    # A study loan line, if printed on its own ("HELP  -46.00"); None if not.
+    loan: Decimal | None = None
+    # Worked out by matching the tax against the ATO's formulas (see _find_tax_situation).
+    tax_scale: str = ""
+    study_loan: bool | None = None
     period_start: date | None = None
     period_end: date | None = None
     # ("Hourly rate", "$32.50", "from the ordinary hours line") — the
@@ -140,6 +163,11 @@ class Payslip:
             out["hourly_rate"] = str(self.rate)
         if self.tax_rate is not None:
             out["tax_rate"] = str(self.tax_rate)
+        if self.tax_scale:
+            out["tax_scale"] = self.tax_scale
+            out["study_loan"] = bool(self.study_loan)
+        for key, multiplier in self.penalties.items():
+            out[key] = _plain(multiplier)
         cycle = self.pay_cycle
         if cycle:
             out["pay_cycle"] = cycle
@@ -325,9 +353,11 @@ def parse(text):
 
     _find_totals(slip, lines)
     _find_rate(slip, lines)
+    _find_penalties(slip, lines)
     _find_period(slip, lines)
     _find_employer(slip, lines)
     _check(slip)
+    _find_tax_situation(slip)
     return slip
 
 
@@ -355,6 +385,13 @@ def _find_totals(slip, lines):
                 amount = _first_amount(line, m)
                 if amount:
                     slip.net = amount
+        if slip.loan is None:
+            m = LOAN.search(line)
+            if m:
+                amount = _first_amount(line, m)
+                if amount is not None:
+                    slip.loan = amount
+                    slip.read.append(("Study loan", f"${amount:,.2f}", f"“{line[:60]}”"))
         if slip.hours is None:
             m = HOURS_TOTAL.search(line)
             if m:
@@ -374,7 +411,8 @@ def _find_rate(slip, lines):
     """
     best = None
     for line in lines:
-        if YTD.search(line):
+        # A weekend, holiday or overtime line is paid at its own rate, never the ordinary one.
+        if YTD.search(line) or _penalty_kind(line):
             continue
         for hours, rate, amount in _triples(line):
             named = bool(ORDINARY.search(line))
@@ -405,6 +443,120 @@ def _find_rate(slip, lines):
     if slip.hours and slip.gross:
         slip.rate = (slip.gross / slip.hours).quantize(Decimal("0.01"), ROUND_HALF_UP)
         slip.read.append(("Hourly rate", f"${slip.rate}", f"gross ${slip.gross:,.2f} ÷ {slip.hours:g} h — an average, so check it"))
+
+
+def _plain(number):
+    """1.50 → "1.5", 2.00 → "2": how the form shows a multiplier."""
+    text = format(Decimal(number).normalize(), "f")
+    return text
+
+
+def _penalty_kind(line):
+    if NOT_PENALTY.search(line):
+        return None
+    for key, label, pattern in PENALTIES:
+        if pattern.search(line):
+            return key, label
+    return None
+
+
+# Multipliers in awards and agreements come in quarters at most (and the odd
+# 1.75 or 2.75), and a rate printed to the cent is that multiple to the cent:
+# one further than this from a twentieth is worked from a
+# different base (a casual loading, a higher grade), not a penalty to trust.
+STEP = Decimal("0.05")
+NEAR = Decimal("0.01")
+
+
+def _find_penalties(slip, lines):
+    """
+    Weekend, public holiday and overtime rates as multipliers of the ordinary
+    rate, from the lines that pay them: each line's own rate ÷ the ordinary
+    rate (a $57.00 Sunday line on a $28.50 rate is 2×). A loading printed on
+    its own — only the extra, "Sunday loading 0.50" — is added to the
+    ordinary time it rides on. Overtime paid in tiers takes the first tier,
+    which is what the form's single overtime rate is.
+    """
+    if not slip.rate:
+        return
+    found = {}
+    for line in lines:
+        if YTD.search(line):
+            continue
+        kind = _penalty_kind(line)
+        if not kind:
+            continue
+        key, label = kind
+        triples = _triples(line)
+        if not triples:
+            continue
+        hours, rate, amount = max(triples, key=lambda t: t[2])
+        ratio = rate / slip.rate
+        loading = ratio < 1
+        if loading:
+            ratio += 1
+        multiplier = (ratio / STEP).quantize(Decimal(1), ROUND_HALF_UP) * STEP
+        if not (Decimal("1") < multiplier <= Decimal("4")) or abs(ratio - multiplier) > NEAR:
+            continue
+        if key in found and (key != "overtime_multiplier" or found[key][0] <= multiplier):
+            continue
+        how = f"{hours:g} h × ${rate:g} on a ${slip.rate} rate"
+        if loading:
+            how += " — a loading on top of ordinary time"
+        found[key] = (multiplier, label, how, line)
+    for key, (multiplier, label, how, line) in found.items():
+        slip.penalties[key] = multiplier
+        slip.read.append((label, f"{_plain(multiplier)}×", f"{how} — “{line[:40]}”"))
+
+
+# How near the slip's tax has to be to the ATO's figure to call it a match:
+# the formulas round to the dollar, and payroll software sometimes the other way.
+TAX_MATCH = Decimal("2")
+
+
+def _find_tax_situation(slip):
+    """
+    Which tax situation (the TFN declaration's answers) the employer is
+    withholding under — worked out, since no slip prints it: the gross goes
+    through the ATO's formula for each situation, with and without a study
+    loan, and the one that gives the tax actually withheld is it.
+
+    Only a single, clear answer is given. Two situations that withhold the
+    same at this pay (a small pay, where several give nothing) is no
+    answer, and the form keeps the tax % instead.
+    """
+    cycle = slip.pay_cycle
+    if slip.gross is None or slip.tax is None or cycle not in (PayCycle.WEEK, PayCycle.FORTNIGHT, PayCycle.MONTH):
+        return
+    # A loan printed on its own line may or may not be inside the tax line.
+    withheld = [slip.tax] + ([slip.tax + slip.loan] if slip.loan else [])
+    matches = set()
+    for scale in (paygw.TFT, paygw.NO_TFT, paygw.FOREIGN, paygw.WHM):
+        for loan in ((False,) if scale == paygw.WHM else (False, True)):
+            if slip.loan and not loan:
+                continue
+            try:
+                expected = Decimal(paygw.withhold(slip.gross, cycle, scale, study_loan=loan, on=slip.period_end))
+            except Exception:
+                continue
+            for actual in withheld:
+                if abs(expected - actual) <= TAX_MATCH:
+                    matches.add((scale, loan, actual))
+    scales = {scale for scale, _, _ in matches}
+    if len(scales) != 1:
+        if len(scales) > 1:
+            slip.notes.append("The tax on this slip fits more than one tax situation, so pick yours — the tax % from the slip is filled in meanwhile.")
+        else:
+            slip.notes.append("The tax on this slip doesn't match a standard tax situation (there may be extra withholding or an adjustment), so its tax % is used instead.")
+        return
+    scale = scales.pop()
+    loans = {loan for _, loan, _ in matches}
+    # Both match when this pay is under the loan's repayment threshold: only a printed line says there is one.
+    slip.study_loan = True if loans == {True} else bool(slip.loan)
+    slip.tax_scale = scale
+    actual = next(a for _, l, a in matches if l == slip.study_loan) if any(l == slip.study_loan for _, l, _ in matches) else slip.tax
+    label = TaxScale(scale).label + (" + study loan" if slip.study_loan else "")
+    slip.read.append(("Tax situation", label, f"${actual:,.2f} withheld from ${slip.gross:,.2f} is the ATO amount for this"))
 
 
 def _find_period(slip, lines):

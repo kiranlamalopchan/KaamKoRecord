@@ -13,6 +13,7 @@ import { AppState, StyleSheet, Switch, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { disablePush, enablePush, openPushSettings, pushState, type PushState } from "@/push/register";
+import { errorMessage } from "@/api/errors";
 
 import { Card } from "./index";
 import { success, tick, warn } from "./haptics";
@@ -25,7 +26,7 @@ const WORDS: Record<Exclude<PushState, "unsupported">, string> = {
   blocked: "Blocked for KaamKoRecord in the phone's Settings. Tap the switch to open them.",
 };
 
-export function PushRow({ minimal = false }: { minimal?: boolean }) {
+export function PushRow({ minimal = false, onChange }: { minimal?: boolean; onChange?: (state: PushState) => void }) {
   const t = useTheme();
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,15 +53,17 @@ export function PushRow({ minimal = false }: { minimal?: boolean }) {
       if (next) {
         const now = await enablePush();
         setState(now);
+        onChange?.(now);
         if (now === "on") success();
         else if (now === "blocked") warn();
         else notify("Couldn't turn that on", "The phone said no, or the server couldn't be reached. Try again in a moment.");
       } else {
         await disablePush();
         setState("off");
+        onChange?.("off");
       }
-    } catch (e: any) {
-      notify("Couldn't change that", e?.message || "");
+    } catch (error) {
+      notify("Couldn't change that", errorMessage(error));
       look();
     } finally {
       setBusy(false);

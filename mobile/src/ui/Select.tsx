@@ -30,7 +30,7 @@ export function Select({ value, options, onChange, label, testID }: { value: str
   const t = useTheme();
   const Picker = nativeOrNull(() => (require("@react-native-picker/picker") as PickerModule).Picker);
   const chosen = options.find((o) => o.value === value);
-  const fill = t.dark ? t.surface3 : t.surface2;
+  const fill = t.field;
   const pick = (next: string) => { if (next !== value) { tick(); onChange(next); } };
 
   if (Platform.OS === "ios") {
@@ -55,7 +55,7 @@ export function Select({ value, options, onChange, label, testID }: { value: str
         accessibilityHint="Opens a list to choose from"
         accessibilityLabel={label ? `${label}: ${chosen?.label ?? value}` : chosen?.label ?? value}
         testID={testID}
-        style={({ pressed }) => [styles.field, { backgroundColor: fill, opacity: pressed ? 0.8 : 1 }]}
+        style={({ pressed }) => [styles.field, { backgroundColor: fill, borderColor: t.fieldLine, opacity: pressed ? 0.8 : 1 }]}
       >
         <Text style={[styles.value, { color: t.text }]} numberOfLines={1}>{chosen?.label ?? value}</Text>
         <Ionicons name="chevron-expand-outline" size={18} color={t.muted} />
@@ -69,7 +69,7 @@ export function Select({ value, options, onChange, label, testID }: { value: str
 
   // Android's dropdown sits in the field itself.
   return (
-    <View style={[styles.field, { backgroundColor: fill, paddingHorizontal: sp[2] }]} testID={testID}>
+    <View style={[styles.field, { backgroundColor: fill, borderColor: t.fieldLine, paddingHorizontal: sp[2] }]} testID={testID}>
       <Picker
         selectedValue={value}
         onValueChange={(v: string) => pick(String(v))}
@@ -85,7 +85,7 @@ export function Select({ value, options, onChange, label, testID }: { value: str
 }
 
 const styles = StyleSheet.create({
-  field: { minHeight: 50, borderRadius: radius.md, paddingHorizontal: sp[4], flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: sp[2] },
+  field: { minHeight: 50, borderRadius: radius.md, borderWidth: 1.5, paddingHorizontal: sp[4], flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: sp[2] },
   value: { fontSize: 16, fontWeight: "600", flex: 1 },
   picker: { flex: 1, height: 50 },
 });

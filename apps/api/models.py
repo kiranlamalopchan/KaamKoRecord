@@ -12,6 +12,18 @@ class ShiftReceipt(models.Model):
         constraints = [models.UniqueConstraint(fields=['user', 'client_id'], name='unique_mobile_shift_submission')]
 
 
+class ClockActionReceipt(models.Model):
+    """Replay protection for a clock tap queued by a phone while offline."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    client_id = models.UUIDField()
+    action = models.CharField(max_length=16)
+    shift = models.ForeignKey('timeclock.Shift', on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'client_id'], name='unique_mobile_clock_action')]
+
+
 class SupportReport(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     description = models.TextField(max_length=4000)

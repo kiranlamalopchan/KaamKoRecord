@@ -144,6 +144,33 @@ class Devices(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class DevicePreferences(APIView):
+    """Per-phone push choices, with the private token kept out of URLs."""
+
+    def post(self, request):
+        token = (request.data.get("token") or "").strip()
+        device = Device.objects.filter(user=request.user, expo_token=token).first()
+        if device is None:
+            return Response({"detail": "This phone is not registered for notifications."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(_device_choices(device))
+
+    def put(self, request):
+        token = (request.data.get("token") or "").strip()
+        device = Device.objects.filter(user=request.user, expo_token=token).first()
+        if device is None:
+            return Response({"detail": "Turn on notifications for this phone first."}, status=status.HTTP_404_NOT_FOUND)
+        for name in ("messages", "roster", "notices", "pay", "friends"):
+            key = f"notify_{name}"
+            if name in request.data:
+                setattr(device, key, bool(request.data[name]))
+        fields = [f"notify_{name}" for name in ("messages", "roster", "notices", "pay", "friends")]
+        device.save(update_fields=fields)
+        return Response(_device_choices(device))
+
+def _device_choices(device):
+    return {name: bool(getattr(device, f"notify_{name}")) for name in ("messages", "roster", "notices", "pay", "friends")}
+
+
 class Activity(APIView):
     """
     The profile page's other two panels: what you have done in KaamKoRecord, and

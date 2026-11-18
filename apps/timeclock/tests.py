@@ -1118,7 +1118,35 @@ class CycleStartTests(TestCase):
         self.assertLess(head.index('title="Monday"'), head.index('title="Sunday"'))
 
 
-class PayTests(TestCase):
+class MiddayClock:
+    """
+    Runs the test as if it were the middle of today.
+
+    These tests make shifts that end "now" and expect them inside today's
+    week, fortnight or cap window. Run just after midnight, a shift of a few
+    hours started yesterday, and the totals came up short. The clock still
+    ticks; it is only moved to noon, local time.
+    """
+
+    # Django's hooks around every test, so the classes' own setUp need not
+    # remember to call this.
+    def _pre_setup(self, *args, **kwargs):
+        from unittest import mock
+        real_now = timezone.now
+        noon = timezone.make_aware(datetime.combine(timezone.localdate(), time(12, 0)))
+        shift = noon - real_now()
+        self._midday = mock.patch("django.utils.timezone.now", lambda: real_now() + shift)
+        self._midday.start()
+        super()._pre_setup(*args, **kwargs)
+
+    def _post_teardown(self, *args, **kwargs):
+        try:
+            super()._post_teardown(*args, **kwargs)
+        finally:
+            self._midday.stop()
+
+
+class PayTests(MiddayClock, TestCase):
     """
     What the hours came to, before and after tax.
 
@@ -2630,7 +2658,7 @@ class SincePaidCardTests(TestCase):
         )
 
 
-class ReminderTests(TestCase):
+class ReminderTests(MiddayClock, TestCase):
     """
     The two things TimeSheet notices on its own.
 
@@ -2972,6 +3000,119 @@ Net pay 4420.00
         self.assertEqual(fields["tax_rate"], "21.07")
         self.assertEqual(fields["pay_cycle"], PayCycle.MONTH)
         self.assertEqual(fields["month_starts_on"], 1)
+
+    # ---- weekend, holiday and overtime rates ----
+
+    PENALTY_SLIP = """Harbour Hotel Pty Ltd
+Pay Period: 31/08/2026 - 13/09/2026
+Description            Hours    Rate      Amount
+Ordinary Hours         38.00    30.0000   1,140.00
+Saturday               8.00     37.5000   300.00
+Sunday                 8.00     45.0000   360.00
+Public Holiday         7.60     75.0000   570.00
+Overtime 1.5           2.00     45.0000   90.00
+Overtime 2.0           1.00     60.0000   60.00
+Annual Leave Loading   7.60     5.2500    39.90
+Gross Pay                                 2,559.90
+PAYG Tax                                  -470.00
+Net Pay                                   2,089.90
+"""
+
+    def test_reads_weekend_holiday_and_overtime_rates_as_multipliers(self):
+        from .payslip import parse
+
+        slip = parse(self.PENALTY_SLIP)
+        fields = slip.fields(today=date(2026, 9, 14))
+
+        # The ordinary line is the rate, though the holiday line pays more an hour.
+        self.assertEqual(fields["hourly_rate"], "30.00")
+        self.assertEqual(fields["saturday_multiplier"], "1.25")
+        self.assertEqual(fields["sunday_multiplier"], "1.5")
+        self.assertEqual(fields["public_holiday_multiplier"], "2.5")
+        # Overtime in tiers: the first tier is the form's overtime rate.
+        self.assertEqual(fields["overtime_multiplier"], "1.5")
+        # A leave loading is not a weekend or holiday rate.
+        self.assertEqual(len(slip.penalties), 4)
+        self.assertTrue(any(label == "Sunday rate" and value == "1.5×" for label, value, _ in slip.read))
+
+    def test_a_loading_printed_on_its_own_counts_on_top_of_ordinary_time(self):
+        from .payslip import parse
+
+        fields = parse("""Corner Cafe
+Pay period 7 Sep 2026 to 13 Sep 2026
+Ordinary hours 30.00 28.0000 840.00
+Sunday loading 8.00 14.0000 112.00
+Gross 952.00
+""").fields(today=date(2026, 9, 14))
+
+        self.assertEqual(fields["hourly_rate"], "28.00")
+        self.assertEqual(fields["sunday_multiplier"], "1.5")  # half again, on top of the ordinary hours
+        self.assertNotIn("saturday_multiplier", fields)
+
+    def test_a_rate_that_is_no_clean_multiple_is_left_alone(self):
+        from .payslip import parse
+
+        fields = parse("""Some Shop
+Pay period 7 Sep 2026 to 13 Sep 2026
+Ordinary hours 30.00 28.0000 840.00
+Sunday 8.00 41.3700 330.96
+Gross 1170.96
+""").fields(today=date(2026, 9, 14))
+
+        self.assertNotIn("sunday_multiplier", fields)  # 1.4775×: a different base, not a Sunday rate to trust
+
+    # ---- the tax situation, matched against the ATO's formulas ----
+
+    def _taxed(self, gross, tax, extra=""):
+        from .payslip import parse
+
+        return parse(f"""Riverside Health
+Pay Period: 27/08/2026 - 09/09/2026
+Ordinary Hours 76.00 {Decimal(gross) / 76:.4f} {gross}
+Gross Pay {gross}
+PAYG Tax -{tax}
+{extra}
+""")
+
+    def test_tax_that_matches_the_tax_free_threshold_scale_says_so(self):
+        slip = self._taxed("2417.53", "410.00")  # the ATO's scale 2 figure for this fortnight
+        fields = slip.fields(today=date(2026, 9, 12))
+
+        self.assertEqual(fields["tax_scale"], "TFT")
+        self.assertFalse(fields["study_loan"])
+        self.assertTrue(any(label == "Tax situation" for label, _, _ in slip.read))
+
+    def test_payroll_rounding_a_dollar_or_two_off_still_matches(self):
+        self.assertEqual(self._taxed("2417.53", "412.00").fields()["tax_scale"], "TFT")
+
+    def test_a_second_job_with_a_study_loan_inside_the_tax_line(self):
+        fields = self._taxed("2417.53", "696.00").fields()
+
+        self.assertEqual(fields["tax_scale"], "NO_TFT")
+        self.assertTrue(fields["study_loan"])  # only the loan's extra makes 696
+
+    def test_a_help_line_printed_on_its_own_is_added_to_the_tax(self):
+        slip = self._taxed("3200.00", "662.00", extra="HELP repayment -80.00")
+        fields = slip.fields()
+
+        self.assertEqual(slip.loan, Decimal("80.00"))
+        self.assertEqual(fields["tax_scale"], "TFT")
+        self.assertTrue(fields["study_loan"])  # 662 + 80 = 742, the ATO's figure with a loan
+
+    def test_tax_that_fits_no_standard_situation_keeps_the_percentage(self):
+        slip = self._taxed("2417.53", "300.00")
+        fields = slip.fields()
+
+        self.assertNotIn("tax_scale", fields)
+        self.assertEqual(fields["tax_rate"], "12.41")
+        self.assertTrue(any("doesn't match a standard tax situation" in note for note in slip.notes))
+
+    def test_the_tfn_itself_is_never_read(self):
+        slip = self._taxed("2417.53", "410.00", extra="TFN: 123 456 782")
+        everything = str(slip.as_json())
+
+        self.assertNotIn("123 456 782", everything)
+        self.assertNotIn("123456782", everything)
 
     def test_says_what_it_could_not_find(self):
         from .payslip import parse

@@ -154,6 +154,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
+/** Whether somebody is signed in, without insisting on a provider (the app bar is drawn everywhere). */
+export function useSignedIn(): boolean {
+  return !!useContext(Context)?.me;
+}
+
 export function useSession(): Session {
   const session = useContext(Context);
   if (!session) throw new Error("useSession outside SessionProvider");

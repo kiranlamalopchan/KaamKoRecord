@@ -15,8 +15,10 @@ import { errorMessage } from "@/api/errors";
 import { Button, Card, ErrorBanner, Field, Page, PageTitle, Screen, SectionLabel } from "@/ui";
 import { fail, success, warn } from "@/ui/haptics";
 import { native } from "@/ui/native";
+import { confirm } from "@/ui/confirm";
 import { alpha, radius, sp, useTheme } from "@/ui/theme";
 import { Choices, Ledger, LedgerRow } from "@/ui/timesheet";
+import { usePayslipHistory } from "@/storage/payslips";
 
 const TYPES = Platform.OS === "android"
   ? ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]
@@ -36,12 +38,14 @@ export default function PayslipCheckScreen() {
   const [failure, setFailure] = useState<unknown>(null);
   // The slip already chosen, so naming the job does not mean choosing it again.
   const [kept, setKept] = useState<FilePart | null>(null);
+  const history = usePayslipHistory();
 
   const send = async (file: FilePart, job: number | "") => {
     setBusy(true); setError(null); setFailure(null);
     try {
       const checked = await timesheet.checkPayslip(file, job);
       setResult(checked);
+      history.save(checked);
       setKept(null);
       if (checked.verdict === "short") warn(); else success();
     } catch (e) {
@@ -88,7 +92,7 @@ export default function PayslipCheckScreen() {
             </Field>
           ) : null}
           <Button title={result ? tr("Check another payslip") : tr("Choose a payslip")} icon="document-text-outline" onPress={pick} busy={busy} testID="payslip-check-pick" />
-          <Text style={{ color: t.muted, fontSize: 13, lineHeight: 19 }}>{tr("A PDF, or a photo or screenshot of one. It is read and not kept.")}</Text>
+          <Text style={{ color: t.muted, fontSize: 13, lineHeight: 19 }}>{tr("The original file is not kept. A private summary stays on this device.")}</Text>
           {error ? <Text accessibilityRole="alert" style={{ color: t.danger, fontSize: 14, lineHeight: 20 }}>{error}</Text> : null}
         </Card>
 
@@ -137,6 +141,24 @@ export default function PayslipCheckScreen() {
             ) : null}
           </>
         ) : null}
+
+        {history.ready && history.rows.length ? <>
+          <View style={styles.historyHead}>
+            <SectionLabel>{tr("Previous checks")}</SectionLabel>
+            <Button title={tr("Clear")} kind="ghost" size="sm" onPress={() => confirm(tr("Clear payslip history?"), tr("This removes saved summaries from this device."), tr("Clear"), history.clear)} />
+          </View>
+          <Card pad={false}>
+            {history.rows.map((row, index) => <View key={row.id} style={[styles.historyRow, { borderBottomColor: t.line, borderBottomWidth: index === history.rows.length - 1 ? 0 : StyleSheet.hairlineWidth }]}>
+              <Ionicons name={row.result.verdict === "match" ? "checkmark-circle-outline" : "alert-circle-outline"} size={22} color={row.result.verdict === "match" ? t.brand : row.result.verdict === "short" ? t.danger : t.warn} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: t.text, fontSize: 15, fontWeight: "700" }} numberOfLines={1}>{row.result.workplace.name} · {row.result.period.label}</Text>
+                <Text style={{ color: t.muted, fontSize: 13 }}>{new Date(row.checkedAt).toLocaleDateString()} · {row.result.headline}</Text>
+              </View>
+              <Button title={tr("Open")} kind="ghost" size="sm" onPress={() => setResult(row.result)} />
+              <Button title={tr("Remove")} kind="ghost" size="sm" onPress={() => history.remove(row.id)} accessibilityLabel={tr("Remove saved payslip check")} />
+            </View>)}
+          </Card>
+        </> : null}
       </Page>
     </Screen>
   );
@@ -145,4 +167,6 @@ export default function PayslipCheckScreen() {
 const styles = StyleSheet.create({
   shift: { flexDirection: "row", alignItems: "center", gap: sp[3], paddingHorizontal: sp[4], minHeight: 52 },
   notes: { gap: sp[2], padding: sp[4], borderRadius: radius.md },
+  historyHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: sp[3] },
+  historyRow: { flexDirection: "row", alignItems: "center", gap: sp[2], paddingHorizontal: sp[3], paddingVertical: sp[2], minHeight: 58 },
 });

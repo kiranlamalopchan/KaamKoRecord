@@ -1,0 +1,31 @@
+# KaamKoRecord's nginx, port 80. Always on. Answers certificate checks and sends everyone else to
+# HTTPS. Requests reach it through the edge nginx, which passes the visitor's address along.
+server_tokens off;
+
+server {
+    listen 80 default_server;
+    return 444;
+}
+
+server {
+    listen 80;
+    server_name ${KAAMKORECORD_DOMAIN} www.${KAAMKORECORD_DOMAIN};
+
+    # The edge nginx is on the private Docker network; only its word for the address is believed.
+    set_real_ip_from 172.16.0.0/12;
+    real_ip_header X-Forwarded-For;
+
+    # Lets scripts/deploy.sh confirm DNS reaches this server before asking for a certificate.
+    location = /.well-known/acme-challenge/kkr-check {
+        default_type text/plain;
+        return 200 "ok";
+    }
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://${KAAMKORECORD_DOMAIN}$request_uri;
+    }
+}

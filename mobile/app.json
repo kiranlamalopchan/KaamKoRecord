@@ -6,7 +6,7 @@
       "ios",
       "android"
     ],
-    "version": "1.4.2",
+    "version": "1.4.3",
     "scheme": "mywork",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -16,12 +16,14 @@
       "supportsTablet": true,
       "requireFullScreen": true,
       "entitlements": {
-        "com.apple.developer.applesignin": ["Default"]
+        "com.apple.developer.applesignin": [
+          "Default"
+        ]
       },
       "infoPlist": {
         "NSCameraUsageDescription": "To photograph picking slips or record a story.",
         "NSPhotoLibraryUsageDescription": "To select picking slips, story media, a profile photo or an optional problem screenshot.",
-        "NSMicrophoneUsageDescription": "To record sound with a story video.",
+        "NSMicrophoneUsageDescription": "To record voice messages and sound with a story video.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "buildNumber": "1"
@@ -44,6 +46,12 @@
     "plugins": [
       "expo-router",
       "expo-status-bar",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan product and PLU barcodes to search your catalogues."
+        }
+      ],
       "expo-secure-store",
       "expo-image",
       "expo-video",
@@ -57,9 +65,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "To select picking slips, story media, a profile photo or an optional problem screenshot.",
-          "cameraPermission": "To photograph picking slips or record a story.",
-          "microphonePermission": "To record sound with a story video."
+          "photosPermission": "To send photos and videos in messages, and to select picking slips, story media, a profile photo or an optional problem screenshot.",
+          "cameraPermission": "To take photos and videos to send in messages, photograph picking slips or record a story.",
+          "microphonePermission": "To record sound with a video for a message or story."
         }
       ],
       "expo-web-browser",
@@ -118,7 +126,14 @@
           ]
         }
       ],
-      "./plugins/with-work-widget"
+      "./plugins/with-work-widget",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "To record voice messages and sound with a story video.",
+          "recordAudioAndroid": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

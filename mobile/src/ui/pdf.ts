@@ -9,7 +9,7 @@ import { getToken } from "@/auth/token";
 import { tell } from "./confirm";
 import { native } from "./native";
 
-export async function openPdf(url: string, name: string, body?: unknown): Promise<void> {
+export async function openFile(url: string, name: string, mimeType: string, body?: unknown): Promise<void> {
   const token = await getToken();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
   const headers: Record<string, string> = { Authorization: `Token ${token}`, "X-Timezone": tz };
@@ -24,10 +24,13 @@ export async function openPdf(url: string, name: string, body?: unknown): Promis
   }
   const { Directory, File, Paths } = native<typeof import("expo-file-system")>(() => require("expo-file-system"));
   const Sharing = native<typeof import("expo-sharing")>(() => require("expo-sharing"));
-  const dir = new Directory(Paths.cache, "pdf");
+  const dir = new Directory(Paths.cache, "exports");
   if (!dir.exists) dir.create();
   const file = new File(dir, name);
   file.write(new Uint8Array(await response.arrayBuffer()));
-  if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { mimeType: "application/pdf", UTI: "com.adobe.pdf" });
+  const uti = mimeType === "application/pdf" ? "com.adobe.pdf" : mimeType === "text/csv" ? "public.comma-separated-values-text" : undefined;
+  if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { mimeType, UTI: uti });
   else tell("Saved", file.uri);
 }
+
+export const openPdf = (url: string, name: string, body?: unknown) => openFile(url, name, "application/pdf", body);

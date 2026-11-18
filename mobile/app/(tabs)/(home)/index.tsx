@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useHome, type HolidayCard } from "@/api";
 import { useSession } from "@/auth/session";
+import { useT } from "@/i18n";
 import { Card, ErrorBanner, Page, Screen, usePullRefresh } from "@/ui";
 import { HUB_SIDE, useLayout } from "@/ui/layout";
 import { DailyPair, JokeCard, QuoteCard } from "@/ui/DailyCard";
@@ -21,6 +22,7 @@ import { FriendStack } from "@/ui/FriendStack";
 import { StoriesTray } from "@/ui/StoriesTray";
 import { alpha, radius, sp, useTheme } from "@/ui/theme";
 import { Fold } from "@/ui/Disclosure";
+import { SetupChecklist } from "@/ui/SetupChecklist";
 
 export default function Home() {
   const t = useTheme();
@@ -39,6 +41,7 @@ export default function Home() {
       <Page refreshControl={refresh} contentContainerStyle={desk ? layout.hub : undefined}>
         {error ? <ErrorBanner error={error} onRetry={refetch} /> : null}
         {isLoading ? <SkeletonHome /> : null}
+        <SetupChecklist workplaceCount={data?.setup?.workplace_count} shiftCount={data?.setup?.shift_count} />
         {data?.festival ? <FestivalBanner festival={data.festival} /> : null}
         {data ? (
           // Wide: two columns starting together at the top — the greeting
@@ -53,7 +56,7 @@ export default function Home() {
                   <Text style={[styles.name, { color: t.text }]} numberOfLines={1}>{me?.display_name || me?.username || "there"}</Text>
                   {data.today ? <Text style={[styles.today, { color: t.muted }]}>{data.today}</Text> : null}
                 </View>
-                {data.holiday.holiday ? <Holiday card={data.holiday.holiday} state={data.holiday.state} stacked /> : null}
+                {data.holiday.holiday ? <Holiday card={data.holiday.holiday} state={data.holiday.state} rate={data.holiday_rate} stacked /> : null}
                 {data.daily ? <QuoteCard quote={data.daily.quote} /> : null}
                 {data.daily ? <JokeCard joke={data.daily.joke} /> : null}
               </View>
@@ -64,7 +67,7 @@ export default function Home() {
                   one pair, a glance each. A wide screen keeps them in its side
                   column instead, so only one of the two places ever shows. */}
               {!desk && data.daily ? <DailyPair daily={data.daily} /> : null}
-              {!desk && data.holiday.holiday ? <Holiday card={data.holiday.holiday} state={data.holiday.state} /> : null}
+              {!desk && data.holiday.holiday ? <Holiday card={data.holiday.holiday} state={data.holiday.state} rate={data.holiday_rate} /> : null}
               {data.friends ? <FriendStack friends={data.friends} /> : null}
               <View style={styles.board}>
                 <View style={styles.boardHead}>
@@ -114,15 +117,15 @@ function greeting() {
 
 /**
  * The next public holiday (templates/holidays/_card.html): the day in words
- * on the left, a drawing of it on the right, on one mint-tinted panel —
+ * on the left, a drawing of it on the right, on one panel —
  * tinted harder in the light, where a paler wash sank into the page.
  *
  * The drawing says nothing the words do not — it is here because this is the
  * first thing on the hub and the one thing on it that is good news, and four
  * fields and a chevron do not read that way. It gives up its width first.
  */
-export function Holiday({ card, state, stacked = false }: { card: HolidayCard; state: string; stacked?: boolean }) {
-  const t = useTheme();
+export function Holiday({ card, state, stacked = false, rate }: { card: HolidayCard; state: string; stacked?: boolean; rate?: number | null }) {
+  const t = useTheme(), tr = useT();
   const router = useRouter();
   return (
     <Pressable onPress={() => router.push("/holidays")} testID="holiday-card" style={({ pressed }) => [styles.hero, stacked && styles.heroStacked, { backgroundColor: t.surface, borderColor: t.line }, { transform: [{ scale: pressed ? 0.985 : 1 }] }]}>
@@ -142,6 +145,8 @@ export function Holiday({ card, state, stacked = false }: { card: HolidayCard; s
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[styles.hName, { color: t.text }]}>{card.name}</Text>
             <Text style={{ color: t.muted, fontSize: 13, marginTop: 1 }}>{card.weekday}</Text>
+            {/* What working it is worth, from your own job's holiday rate. */}
+            {rate ? <Text style={{ color: t.brandStrong, fontSize: 13, fontWeight: "700", marginTop: 2 }} testID="holiday-rate">{tr("Working it pays {rate}×", { rate })}</Text> : null}
           </View>
         </View>
         {/* The countdown before the way in: it is the reason the card exists,

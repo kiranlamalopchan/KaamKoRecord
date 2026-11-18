@@ -397,6 +397,15 @@ class ExpoPushTests(TestCase):
         self.assertEqual(sent[0]["to"], "ExponentPushToken[abc]")
         self.assertEqual(sent[0]["title"], "sam posted a notice")
 
+    def test_a_phone_can_mute_one_kind_without_losing_the_inbox(self):
+        self.phone.notify_notices = False
+        self.phone.save(update_fields=["notify_notices"])
+
+        posted = self._send()
+
+        posted.assert_not_called()
+        self.assertEqual(Notification.unread_count(self.kiran), 1)
+
     def test_it_names_the_channel_the_app_made(self):
         """
         Android takes its importance from the channel, not from `priority`.

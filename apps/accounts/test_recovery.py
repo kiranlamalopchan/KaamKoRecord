@@ -207,7 +207,7 @@ class BrevoBackendTests(SimpleTestCase):
 
 @override_settings(EMAIL_BACKEND='apps.accounts.email_backend.BrevoEmailBackend',
                    BREVO_API_KEY='private-api-key', DEFAULT_FROM_EMAIL='KaamKoRecord <sender@gmail.com>',
-                   PASSWORD_RESET_BASE_URL='https://example.pythonanywhere.com')
+                   PASSWORD_RESET_BASE_URL='https://mail.example.com')
 class RecoveryConfigurationTests(SimpleTestCase):
     def test_check_accepts_a_gmail_sender_without_sending_or_exposing_the_key(self):
         output = StringIO()

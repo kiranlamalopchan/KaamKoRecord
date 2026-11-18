@@ -59,6 +59,8 @@ async function kept(key: string): Promise<string | null> {
   }
 }
 
+export const currentPushToken = () => kept(TOKEN_KEY);
+
 /** Whether the switch was turned off on this phone. */
 export async function pushTurnedOff(): Promise<boolean> {
   return (await kept(OFF_KEY)) === "1";

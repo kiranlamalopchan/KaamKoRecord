@@ -5,20 +5,26 @@ summary — each driven the way the app drives it.
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+from urllib.parse import quote, urlsplit
 
+from asgiref.sync import async_to_sync
+from channels.testing import WebsocketCommunicator
 from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from apps.accounts.models import Friendship
-from apps.chat.models import Message
+from apps.chat.models import ConversationMember, Message
+from apps.chat.consumers import ChatConsumer
 from apps.moderation.models import Block
 from apps.notifications.models import Kind, Notification
 from apps.roster.models import PlannedShift
 from apps.timeclock.models import PayCycle, Shift, Workplace
 
-from .tests import ApiTestCase, PayslipApiTests
+from .tests import ApiTestCase, PayslipApiTests, picture
+from mywork.asgi import application
 
 
 def hours_from_now(n):
@@ -188,6 +194,7 @@ class ChatTests(ApiTestCase):
             with self.subTest(body=value):
                 self.assertEqual(self.say(value).status_code, 400)
         self.assertFalse(Message.objects.exists())
+        self.assertEqual(self.api("post", "message_thread", {"body": "reply", "reply_to": "not-an-id"}, args=["sam"]).status_code, 400)
 
     def test_busy_threads_do_not_hide_older_conversations_or_undercount_unread(self):
         alex = User.objects.create_user("alex")
@@ -222,6 +229,100 @@ class ChatTests(ApiTestCase):
         self.assertEqual((len(first["messages"]), first["more"], first["messages"][-1]["body"]), (PAGE, True, f"line {PAGE + 4}"))
         older = self.api("get", "message_thread", {"before": first["messages"][0]["id"]}, args=["sam"]).json()
         self.assertEqual(([m["body"] for m in older["messages"]], older["more"]), ([f"line {n}" for n in range(5)], False))
+
+    def test_photos_typing_and_reactions_stay_inside_the_conversation(self):
+        typing = self.api("post", "message_typing", args=["sam"])
+        self.assertEqual(typing.status_code, 204)
+        self.assertTrue(self.api("get", "message_thread", args=["kiran"], token=self.sam_token).json()["typing"])
+
+        sent = self.api("post", "message_thread", {"body": "Roster", "photo": picture(3000, 2000)}, args=["sam"], fmt="multipart")
+        self.assertEqual(sent.status_code, 201, sent.content)
+        stored = Message.objects.get(pk=sent.json()["id"])
+        with stored.photo.open("rb") as photo:
+            image = Image.open(photo)
+            self.assertEqual(image.format, "JPEG")
+            self.assertEqual(max(image.size), 2048)
+        photo_url = sent.json()["photo"]
+        self.assertIn("/api/v1/messages/item/", photo_url)
+        self.assertNotIn("/media/", photo_url)
+        photo_path = urlsplit(photo_url)
+        self.assertEqual(self.client.get(f"{photo_path.path}?{photo_path.query}").status_code, 200)
+        self.assertEqual(self.client.get(photo_path.path).status_code, 404)
+        reacted = self.api("post", "message_react", {"emoji": "👍"}, args=[sent.json()["id"]], token=self.sam_token)
+        self.assertEqual(reacted.json()["reactions"], [{"emoji": "👍", "count": 1}])
+        self.assertEqual(reacted.json()["my_reaction"], "👍")
+
+    def test_retried_sends_are_idempotent_and_keep_a_stable_conversation(self):
+        client_id = "132f62cd-5e34-4dd0-9152-8ac2811853cc"
+        with patch("apps.notifications.push.send_to_user") as push:
+            first = self.api("post", "message_thread", {"body": "Same once", "client_id": client_id}, args=["sam"])
+            retried = self.api("post", "message_thread", {"body": "Same once", "client_id": client_id}, args=["sam"])
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(retried.status_code, 200)
+        self.assertEqual(first.json()["id"], retried.json()["id"])
+        self.assertEqual(Message.objects.filter(sender=self.kiran, client_id=client_id).count(), 1)
+        self.assertEqual(push.call_count, 1)
+        inbox = self.api("get", "messages").json()["threads"][0]
+        thread = self.api("get", "message_thread", args=["sam"]).json()
+        self.assertEqual(inbox["conversation_id"], thread["conversation_id"])
+
+    def test_inbox_search_finds_names_and_older_message_text(self):
+        self.say("Saturday cover needed")
+        self.say("This is the newest preview")
+        by_text = self.api("get", "messages", {"q": "Saturday cover"}).json()["threads"]
+        by_name = self.api("get", "messages", {"q": "sam"}).json()["threads"]
+        self.assertEqual([row["person"]["username"] for row in by_text], ["sam"])
+        self.assertEqual([row["person"]["username"] for row in by_name], ["sam"])
+
+    def test_reply_edit_unsend_and_inbox_settings_are_authorized(self):
+        original = self.say("Original").json()
+        reply = self.api("post", "message_thread", {"body": "Reply", "reply_to": original["id"]}, args=["sam"])
+        self.assertEqual(reply.json()["reply"]["body"], "Original")
+
+        edited = self.api("patch", "message_detail", {"body": "Corrected"}, args=[original["id"]])
+        self.assertEqual((edited.status_code, edited.json()["body"], edited.json()["edited"]), (200, "Corrected", True))
+        self.assertEqual(self.api("patch", "message_detail", {"body": "No"}, args=[original["id"]], token=self.sam_token).status_code, 404)
+
+        removed = self.api("delete", "message_detail", args=[original["id"]])
+        self.assertTrue(removed.json()["unsent"])
+        self.assertEqual(removed.json()["body"], "")
+        conversation_id = self.api("get", "messages").json()["threads"][0]["conversation_id"]
+        settings = self.api("patch", "message_conversation_settings", {"pinned": True, "muted": True, "archived": True}, args=[conversation_id])
+        self.assertEqual(settings.status_code, 200)
+        self.assertTrue(settings.json()["pinned"])
+        self.assertEqual(self.api("get", "messages").json()["threads"], [])
+        self.assertEqual(len(self.api("get", "messages", {"archived": 1}).json()["threads"]), 1)
+        membership = ConversationMember.objects.get(conversation_id=conversation_id, user=self.kiran)
+        self.assertIsNotNone(membership.muted_until)
+        invalid = self.api("patch", "message_conversation_settings", {"muted": "false"}, args=[conversation_id])
+        self.assertEqual(invalid.status_code, 400)
+        with patch("apps.notifications.push.send_to_user") as push:
+            incoming = self.api("post", "message_thread", {"body": "Quietly"}, args=["kiran"], token=self.sam_token)
+        self.assertEqual(incoming.status_code, 201)
+        push.assert_not_called()
+
+    def test_realtime_tickets_are_short_lived_credentials_not_login_tokens(self):
+        first = self.api("post", "message_realtime_ticket")
+        second = self.api("post", "message_realtime_ticket")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["expires_in"], 60)
+        self.assertEqual(first.json()["path"], "/ws/chat/")
+        self.assertNotEqual(first.json()["ticket"], second.json()["ticket"])
+        self.assertNotIn(self.token, first.json()["ticket"])
+
+        async def use_once():
+            with patch.object(ChatConsumer, "_active_user", new=AsyncMock(return_value=True)):
+                socket = WebsocketCommunicator(application, f"/ws/chat/?ticket={quote(first.json()['ticket'])}")
+                connected, _ = await socket.connect()
+                self.assertTrue(connected)
+                self.assertEqual((await socket.receive_json_from())["type"], "connected")
+                await socket.disconnect()
+                replay = WebsocketCommunicator(application, f"/ws/chat/?ticket={quote(first.json()['ticket'])}")
+                connected_again, code = await replay.connect()
+                self.assertFalse(connected_again)
+                self.assertEqual(code, 4401)
+
+        async_to_sync(use_once)()
 
 
 class PayslipCheckTests(PayslipApiTests):

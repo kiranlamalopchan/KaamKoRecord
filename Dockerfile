@@ -16,7 +16,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt "gunicorn>=23,<24"
+RUN pip install -r requirements.txt
 
 COPY . .
 RUN useradd --uid 1000 --create-home app \
@@ -25,4 +25,4 @@ RUN useradd --uid 1000 --create-home app \
 USER app
 
 EXPOSE 8000
-CMD ["gunicorn", "mywork.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "--http-timeout", "330", "mywork.asgi:application"]

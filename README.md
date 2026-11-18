@@ -128,10 +128,14 @@ pointed elsewhere from the sign-in screen meanwhile).
 ## Deploying (Hostinger VPS)
 
 KaamKoRecord runs at https://kaamkorecord.com on the same VPS as Bideshkosathi, in its own
-containers with its own database and uploads (`docker-compose.prod.yml`). Bideshkosathi's nginx is
-the front door for both: it answers `kaamkorecord.com`, gets its HTTPS certificate, serves
-`/static/` and the public upload folders (`avatars`, `stories`, `festivals`), and passes the rest to
-this app. A `jobs` container runs the scheduled work (`scripts/jobs.sh`).
+containers with its own database and uploads (`docker-compose.prod.yml`). **KaamKoRecord's nginx**
+(`deploy/nginx/`, the `nginx` service) answers `kaamkorecord.com`: it holds the HTTPS certificate
+(renewed by the `certbot` service), serves `/static/` and the public upload folders (`avatars`,
+`stories`, `festivals`), forwards chat WebSockets on `/ws/`, and passes the rest to this app.
+In front of both sites is the **edge nginx** (`deploy/edge/`, at `/opt/edge` on the VPS), the one
+thing on ports 80/443, which sends each domain to its own site's nginx. Bideshkosathi has its own
+nginx. See `deploy/edge/README.md`, including the one-time move from the old shared setup.
+A `jobs` container runs the scheduled work (`scripts/jobs.sh`).
 
 First time, on the VPS:
 
@@ -142,14 +146,23 @@ cp deploy/env.example .env     # fill it in; keep the old secret key and VAPID k
 ./scripts/deploy.sh
 ```
 
-Then set `KAAMKORECORD_DOMAIN=kaamkorecord.com` in Bideshkosathi's `.env.production` and run its
-`./scripts/deploy.sh`, which gets the certificate once the domain's DNS points at the VPS.
+With the edge nginx running and the domain's DNS pointing at the VPS, `deploy.sh` gets the first
+certificate itself (set `ACME_EMAIL` in `.env`).
 
 Every update after that: `./scripts/deploy.sh` here. It pulls, builds, migrates, collects static
-files and restarts. To load a copy of another server's data (this replaces what is here):
+files and restarts. Chat WebSockets run through Daphne and Redis in the same Compose project.
+KaamKoRecord's nginx forwards the `Upgrade` and `Connection` headers on `/ws/`; without them the
+app quietly falls back to polling. Private message photos live in the
+`kaamkorecord_private_media` volume and are only returned through signed participant-only routes.
+
+No extra environment variable is required for realtime locally or in this Compose deployment:
+Compose supplies `REDIS_URL=redis://redis:6379/0` to the web container. A different deployment may
+set `REDIS_URL` to its own private Redis service.
+
+To load a copy of another server's data (this replaces what is here):
 
 ```bash
-./scripts/import-data.sh ~/kaamkorecord-data.tgz   # holds db.sqlite3 and media/
+./scripts/import-data.sh ~/kaamkorecord-data.tgz   # holds db.sqlite3, media/ and private_media/
 ```
 
 A new secret key:
@@ -160,6 +173,49 @@ python -c "from django.core.management.utils import get_random_secret_key as k; 
 
 `mywork.settings.local` runs with `DEBUG = True`, which shows a full traceback and your settings to
 anybody who triggers an error. It is for a laptop, not for a site with an address.
+
+## Chat
+
+The app's Chats tab: direct conversations between friends and groups, by stable conversation id.
+Rules live in `apps/chat/services.py`, media handling in `apps/chat/media.py`, the API in
+`apps/api/views/conversations.py` (the older username endpoints in `chat.py` stay for app versions
+already in the stores). Realtime is the WebSocket at `/ws/chat/` (Daphne + Redis, above); without it
+the app falls back to polling.
+
+**Who may talk:** a direct conversation needs an accepted friendship and no block either way.
+A group is created from the creator's friends; members are then members until they leave or an
+admin removes them. Somebody blocked by a member stops that member sending in the group.
+**Group history:** the people a group starts with see all of it; anybody added later sees only
+what is said from the moment they were added (`ConversationMember.history_from`).
+
+**Attachments** (all re-made on the server, kept in `private_media/`, never under `/media/`):
+photos (JPEG/PNG/WebP/HEIC; up to 10 at once; Standard 1600 px q75 or HD 2560 px q88; a 320 px
+thumbnail; EXIF and GPS dropped; transparency kept as WebP), video (H.264/AAC MP4, 720p Standard or
+1080p HD, at most 30 fps, poster frame; refused — never cut — over 5 minutes), voice messages
+(mono AAC 32 kbps, up to 10 minutes) and documents (PDF, Word, Excel, PowerPoint, TXT, CSV, ZIP,
+checked against their file signatures, always served as downloads). Video and voice need `ffmpeg`
+and `ffprobe` (in the Docker image). Large videos and files go up in resumable pieces through
+`/api/v1/uploads/`. Files are served only through links signed for one viewer that expire after an
+hour, and every request checks again that the viewer is still in the conversation.
+
+Limits can be changed without code with `CHAT_MEDIA` in settings, e.g.
+`CHAT_MEDIA = {"video_max_seconds": 120, "file_max_bytes": 50 * 1024 * 1024}`
+(keys: see `DEFAULTS` in `apps/chat/media.py`). Sending is limited to 40 messages a minute a person.
+
+**Privacy, as it actually is:** messages travel over HTTPS/WSS and are stored on this server,
+readable only through the conversation's members' accounts. They are **not** end-to-end encrypted,
+and the app says so on the chat details screen. Reporting a message sends only that message's words
+to the moderators (`moderation.Report`, kind `message`); nobody gets an admin view of conversations.
+
+**Not built yet (needs outside setup):** voice and video calls (WebRTC with `react-native-webrtc`,
+a TURN server such as coturn with credentials in the environment, and CallKit/ConnectionService
+for ringing a locked phone), end-to-end encryption (a maintained protocol such as Signal's, with
+multi-device keys — not to be invented here), object storage/CDN for media (files are on the VPS
+volume `kaamkorecord_private_media`; back it up with the database), and per-person chat colours.
+
+**Rollback:** the chat migrations only add. To go back, deploy the previous code and leave the
+schema as it is — older code ignores the new tables and columns and doesn't list group messages.
+Only unapply `chat 0005` on a database with no group messages (`recipient` becomes required again).
 
 ## Notifications
 

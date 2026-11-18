@@ -3185,6 +3185,14 @@
       var el = document.getElementById("id_" + id);
       if (!el) return false;
       if (id === "name" && el.value.trim()) return false;
+      // The study loan is a tick box: the slip ticks it or leaves it.
+      if (el.type === "checkbox") {
+        if (el.checked === !!value) return false;
+        el.checked = !!value;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        mark(el.closest(".field") || el.closest("label"));
+        return true;
+      }
       el.value = String(value);
       // A select that had no such option keeps what it had.
       if (el.tagName === "SELECT" && el.value !== String(value)) return false;
@@ -3220,8 +3228,16 @@
     function show(data) {
       var count = 0;
       // The cycle first, so the rows it reveals are there to be filled.
-      var order = ["name", "pay_cycle", "limit_period", "hourly_rate", "tax_rate",
+      // The tax situation before the loan box it reveals; its % only when no situation was matched.
+      var order = ["name", "pay_cycle", "limit_period", "hourly_rate",
+        "saturday_multiplier", "sunday_multiplier", "public_holiday_multiplier", "overtime_multiplier",
+        "tax_scale", "study_loan", "tax_rate",
         "week_starts_on", "fortnight_starts_on", "fortnight_phase", "month_starts_on"];
+      if (!("tax_scale" in data.fields) && "tax_rate" in data.fields) {
+        // A % from the slip goes in as "my own %", as before.
+        var scaleBox = document.getElementById("id_tax_scale");
+        if (scaleBox && !scaleBox.value) data.fields.tax_scale = "CUSTOM";
+      }
       filling = true;
       order.forEach(function (key) {
         if (key in data.fields && fill(key, data.fields[key])) count++;

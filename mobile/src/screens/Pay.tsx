@@ -22,12 +22,13 @@ import { Choices } from "@/ui/timesheet";
 import { success, tick } from "@/ui/haptics";
 import { useReducedMotion } from "@/ui/useReducedMotion";
 import { Fold, FoldChevron } from "@/ui/Disclosure";
+import { useT } from "@/i18n";
 
 const money = (value: number) => `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const GAP = 12;
 
 export default function Pay() {
-  const t = useTheme(), router = useRouter(), q = usePay();
+  const t = useTheme(), tr = useT(), router = useRouter(), q = usePay();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const rows = q.data?.owing ?? [];
   const selected = rows.find(row => row.workplace.id === selectedId) || rows.find(row => row.workplace.is_default) || rows[0];
@@ -46,6 +47,23 @@ export default function Pay() {
     {q.error ? <ErrorBanner error={q.error} onRetry={q.refetch} /> : null}
     {q.isLoading ? <SkeletonPay /> : null}
     {q.data && !rows.length ? <Empty icon="wallet-outline" title="Your pay starts here" sub="Add a workplace to keep its hours and payments together." action={<Button title="Add a workplace" onPress={() => router.push("/workplaces/new")} />} /> : null}
+    {q.data?.forecast?.rows.length ? <Card style={{ gap: sp[3] }} testID="pay-forecast">
+      <View style={{ flexDirection: "row", alignItems: "center", gap: sp[3] }}>
+        <View style={[styles.forecastIcon, { backgroundColor: t.brandSoft }]}><Ionicons name="sparkles-outline" size={22} color={t.brand} /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: t.text, fontSize: 17, fontWeight: "800" }}>{tr("Next 14 days")}</Text>
+          <Text style={{ color: t.muted, fontSize: 13 }}>{tr("Estimated from your roster, including saved penalty and overtime rates")}</Text>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={{ color: t.text, fontSize: 20, fontWeight: "800", fontVariant: ["tabular-nums"] }}>{money(q.data.forecast.net)}</Text>
+          <Text style={{ color: t.muted, fontSize: 11 }}>{tr("after estimated tax")}</Text>
+        </View>
+      </View>
+      {q.data.forecast.rows.map(row => <View key={row.workplace.id} style={{ flexDirection: "row", alignItems: "center", gap: sp[2] }}>
+        <Text style={{ color: t.text2, flex: 1, fontSize: 14 }}>{row.workplace.name} · {row.hours}h · {row.shifts} {tr(row.shifts === 1 ? "shift" : "shifts")}</Text>
+        <Text style={{ color: t.text, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{money(row.net)}</Text>
+      </View>)}
+    </Card> : null}
     {/* The earnings chart lives on Timesheets only. On an iPad the chosen job's details sit beside the cards. */}
     {q.data && selected ? <Split
       main={<WorkplaceCards rows={rows} selectedId={selected.workplace.id} onSelect={setSelectedId} />}
@@ -285,6 +303,7 @@ function Line({ title, sub, value, note, warn, last }: { title: string; sub: str
 }
 
 const styles = StyleSheet.create({
+  forecastIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   pageHead: { flexDirection: "row", alignItems: "center", gap: sp[3] },
   title: { fontSize: 30, fontWeight: "800", letterSpacing: -.8 },
   round: { width: 44, height: 44, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },

@@ -18,10 +18,10 @@
     }
   },
   "light": {
-    "bg": "#f6f7f6",
-    "surface": "#dcefe3",
-    "surface2": "#cfe6d8",
-    "surface3": "#c0dccb",
+    "bg": "#f2f2f7",
+    "surface": "#ffffff",
+    "surface2": "#e8ebe9",
+    "surface3": "#dbe0dd",
     "brand": "#04694a",
     "brandStrong": "#064e3b",
     "brandSoft": "rgba(4, 105, 74, 0.16)",
@@ -33,8 +33,8 @@
     "text": "#171717",
     "text2": "#3a403c",
     "muted": "#525b56",
-    "line": "#9cc4ad",
-    "lineStrong": "#6f9f85",
+    "line": "#d6dbd8",
+    "lineStrong": "#8c9590",
     "danger": "#a51616",
     "dangerSoft": "rgba(165, 22, 22, 0.12)",
     "warn": "#8a3c0c",
@@ -49,10 +49,10 @@
     "rxFace": "$warn",
     "rxAngry": "$danger",
     "pill": "$surface",
-    "pillGlass": "rgba(220, 239, 227, 0.92)",
+    "pillGlass": "rgba(255, 255, 255, 0.92)",
     "pillLine": "$line",
     "pillInk": "$text2",
-    "track": "rgba(0, 0, 0, 0.12)",
+    "track": "rgba(0, 0, 0, 0.10)",
     "knob": "#ffffff",
     "glass": "$surface",
     "glassLine": "$line",
@@ -74,7 +74,9 @@
     "metalLow": "#8c8c8c",
     "metalInk": "#525252",
     "dark": false,
-    "dangerInk": "#ffffff"
+    "dangerInk": "#ffffff",
+    "field": "#ffffff",
+    "fieldLine": "$lineStrong"
   },
   "dark": {
     "bg": "#000000",
@@ -133,6 +135,8 @@
     "metalLow": "#8c8c8c",
     "metalInk": "#525252",
     "dark": true,
-    "dangerInk": "#450a0a"
+    "dangerInk": "#450a0a",
+    "field": "$surface3",
+    "fieldLine": "transparent"
   }
 }

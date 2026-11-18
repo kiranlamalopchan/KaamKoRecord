@@ -7,8 +7,8 @@ import "react-native-gesture-handler";
 import React, { useEffect, useMemo, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AppState } from "react-native";
-import { Stack, useRootNavigationState } from "expo-router";
+import { Appearance, AppState } from "react-native";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationTheme, useRootNavigationState } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
 import { SessionProvider, useSession } from "@/auth/session";
@@ -24,6 +24,7 @@ import { notifications } from "@/push/register";
 import { loadLang, useT } from "@/i18n";
 import { registerClockActions } from "@/roster/reminders";
 import { RosterAlarms } from "@/roster/RosterAlarms";
+import { ChatRealtime } from "@/chat/realtime";
 import { loadThemeMode, saveThemeMode, ThemeContext, type ThemeMode, useTheme } from "@/ui/theme";
 import { pushOptions, riseOptions } from "@/ui/transitions";
 
@@ -76,7 +77,13 @@ function Guard() {
   // The way in first if it is owed, then the sign-in screens while signed
   // out, then everything else. Every screen draws its own app bar
   // (ui/AppBar), so the stack draws none.
+  // The navigator's own colours too. Its container sits behind every screen
+  // and showed its default near-white round the edges while a page was
+  // swiped back, whatever colour the app was in.
+  const base = t.dark ? DarkTheme : DefaultTheme;
+  const navTheme = { ...base, colors: { ...base.colors, background: t.bg, card: t.bg, text: t.text, border: t.line, primary: t.brand } };
   return (
+    <NavigationTheme value={navTheme}>
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg }, ...pushOptions }}>
       <Stack.Protected guard={tour}>
         {/* Faded, not pushed: the splash is dissolving into this. */}
@@ -124,15 +131,20 @@ function Guard() {
         <Stack.Screen name="timesheet" options={{ animation: "none" }} />
         <Stack.Screen name="more" options={{ animation: "none" }} />
         <Stack.Screen name="items/import" />
+        <Stack.Screen name="items/scanner" options={riseOptions} />
         <Stack.Screen name="roster/index" />
         <Stack.Screen name="roster/new" />
         <Stack.Screen name="roster/[id]" />
         <Stack.Screen name="payslip-check" />
         <Stack.Screen name="messages/index" />
+        <Stack.Screen name="messages/new" />
         <Stack.Screen name="messages/[username]" />
+        <Stack.Screen name="messages/c/[id]" />
+        <Stack.Screen name="messages/info/[id]" />
       </Stack.Protected>
       <Stack.Screen name="auth-complete" options={{ animation: "none" }} />
     </Stack>
+    </NavigationTheme>
   );
 }
 
@@ -140,6 +152,11 @@ function Guard() {
 function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>("system");
   useEffect(() => { loadThemeMode().then(setModeState); }, []);
+  // Tell iOS and Android which one the app chose, not only our own screens.
+  // Left to the phone, a dark app on a light phone kept the native layers
+  // under the screens (the tab container, the window) white, and that white
+  // showed round the edges while a screen slid back.
+  useEffect(() => { Appearance.setColorScheme(mode === "system" ? "auto" : mode); }, [mode]);
   const value = useMemo(() => ({
     mode,
     setMode: (next: ThemeMode) => { setModeState(next); saveThemeMode(next).catch(() => {}); },
@@ -147,8 +164,14 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
+type SystemUI = typeof import("expo-system-ui");
+const systemUI = nativeOrNull<SystemUI>(() => require("expo-system-ui"));
+
 function Shell() {
   const t = useTheme();
+  // The window behind every screen wears the page colour. Left at the default white, it
+  // showed as a thin white line at the edge while one page slid away and the next came in.
+  useEffect(() => { void systemUI?.setBackgroundColorAsync(t.bg).catch(() => {}); }, [t.bg]);
   const { ready } = useSession();
   const { checked } = useOnboarding();
   const [wayIn, setWayIn] = useState(true);
@@ -165,6 +188,7 @@ function Shell() {
       <StatusBar style={wayIn || t.dark ? "light" : "dark"} />
       <OfflineSync />
       <RosterAlarms />
+      <ChatRealtime />
       <Guard />
       {update.required ? <UpdateRequired current={update.current} latest={update.latest} /> : null}
       {wayIn ? <Splash ready={ready && checked} onDone={() => setWayIn(false)} /> : null}

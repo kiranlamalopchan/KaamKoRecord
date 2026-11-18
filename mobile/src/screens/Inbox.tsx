@@ -10,10 +10,10 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
-import { inbox, useChatUnread, useInbox, useInboxChanged, type Notification } from "@/api";
+import { inbox, useInbox, useInboxChanged, type Notification } from "@/api";
 import { useT } from "@/i18n";
 import { navigateTo } from "@/nav/paths";
-import { Avatar, Button, Card, Empty, ErrorBanner, MenuRow, PageTitle, Screen, usePullRefresh } from "@/ui";
+import { Avatar, Button, Card, Empty, ErrorBanner, PageTitle, Screen, usePullRefresh } from "@/ui";
 import { underRefresh, WithDepth } from "@/ui/depth";
 import { SkeletonNotifications } from "@/ui/Skeleton";
 import { useLayout } from "@/ui/layout";
@@ -30,7 +30,6 @@ export default function Inbox() {
   const layout = useLayout();
   const router = useRouter();
   const tr = useT();
-  const unreadChat = useChatUnread().data?.unread ?? 0;
   const q = useInbox();
   const refresh = usePullRefresh(q.refetch);
   const changed = useInboxChanged();
@@ -64,7 +63,7 @@ export default function Inbox() {
   };
 
   return (
-    <Screen section="Notifications">
+    <Screen back>
       <WithDepth>{(under) => <FlatList
         showsVerticalScrollIndicator={false}
         {...under.scroll}
@@ -79,12 +78,6 @@ export default function Inbox() {
         ListHeaderComponent={
           <>
             <PageTitle>{tr("Notifications")}</PageTitle>
-            <Card pad={false} style={{ marginBottom: sp[3] }}>
-              <MenuRow icon="mail-outline" title={tr("Messages")} last
-                sub={unreadChat ? tr("{n} unread", { n: unreadChat }) : tr("Between you and your friends")}
-                value={unreadChat ? String(unreadChat) : undefined}
-                onPress={() => router.push("/messages" as never)} testID="open-messages" />
-            </Card>
             {q.error ? <ErrorBanner error={q.error} onRetry={q.refetch} /> : null}
           </>
         }

@@ -18,6 +18,7 @@ expo-env.d.ts
 service-account*.json
 .env
 .env.local
-ios/
-android/
+# Only the generated top-level folders: local modules keep their native code.
+/ios/
+/android/
 google-services.json

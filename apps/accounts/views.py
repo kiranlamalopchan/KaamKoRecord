@@ -338,10 +338,12 @@ def delete_account(user):
     said only as a notification's words, with no actor (SET_NULL there is
     deliberate — see apps/notifications/models.py). Files are dropped by
     hand, since a FileField leaves them behind when its row goes: the
-    profile photo, every story's photo or video, and any screenshot sent
-    with a support report — the privacy policy promises all of them go.
+    profile photo, every story or message photo, and any screenshot sent with
+    a support report — the privacy policy promises all of them go.
     """
     from apps.api.models import SupportReport
+    from apps.chat.models import Message
+    from django.db.models import Q
     from apps.stories.models import Story
 
     profile = Profile.objects.filter(user=user).first()
@@ -351,6 +353,8 @@ def delete_account(user):
         story.take_down()
     for report in SupportReport.objects.filter(user=user).exclude(screenshot=""):
         report.screenshot.delete(save=False)
+    for message in Message.objects.filter(Q(sender=user) | Q(recipient=user)).exclude(photo=""):
+        message.photo.delete(save=False)
     user.delete()
 
 

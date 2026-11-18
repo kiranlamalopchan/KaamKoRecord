@@ -90,6 +90,13 @@ class Upload(APIView):
     piece (index 0) starts the file afresh, so a retry from the top is safe.
     """
 
+    def get(self, request):
+        """How much of an upload has arrived, so an interrupted one can carry on."""
+        path = part_path(request.user, str(request.GET.get("upload_id") or ""))
+        if not path:
+            return Response({"detail": "A bad upload id."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"bytes": os.path.getsize(path) if os.path.exists(path) else 0})
+
     def post(self, request):
         upload_id = str(request.data.get("upload_id") or "")
         path = part_path(request.user, upload_id)
@@ -107,6 +114,19 @@ class Upload(APIView):
         if mode == "ab" and not os.path.exists(path):
             return Response({"detail": "That upload hasn't started. Send piece 0 first."}, status=status.HTTP_409_CONFLICT)
         have = os.path.getsize(path) if os.path.exists(path) and mode == "ab" else 0
+        # Optional `offset`: where this piece starts. A piece that already
+        # arrived (its answer was lost) is acknowledged, not appended twice;
+        # one that would leave a gap is refused with what has arrived.
+        offset = request.data.get("offset")
+        if offset is not None and mode == "ab":
+            try:
+                offset = int(offset)
+            except (TypeError, ValueError):
+                return Response({"detail": "A bad offset."}, status=status.HTTP_400_BAD_REQUEST)
+            if offset + len(data) == have:
+                return Response({"upload_id": upload_id, "received": index + 1, "total": total, "bytes": have})
+            if offset != have:
+                return Response({"detail": "Some of that upload is missing.", "bytes": have}, status=status.HTTP_409_CONFLICT)
         if have + len(data) > MAX_BYTES:
             discard(request.user, upload_id)
             return Response({"detail": "That video is too big to send."}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)

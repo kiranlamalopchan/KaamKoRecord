@@ -11,10 +11,21 @@ from apps.noticeboard.models import Notice
 from apps.noticeboard.views import HUB_LIMIT
 from apps.notifications.models import Notification
 from apps.stories.views import tray_for
+from apps.timeclock.models import Shift, Workplace
 from mywork.daily import daily
 from mywork.seasons import home_festival_banner
 
 from .. import serialize
+
+
+def holiday_rate(user):
+    """What working a public holiday pays at your default job, when it pays more."""
+    places = list(Workplace.objects.filter(user=user))
+    if not places:
+        return None
+    main = next((w for w in places if w.is_default), places[0])
+    rate = float(main.public_holiday_multiplier)
+    return rate if rate > 1 else None
 
 
 class Home(APIView):
@@ -52,4 +63,9 @@ class Home(APIView):
             # day and a little laugh — the same for everyone until midnight.
             "today": timezone.localdate().strftime("%A, %-d %B"),
             "daily": daily(timezone.localdate()),
+            "holiday_rate": holiday_rate(user),
+            "setup": {
+                "workplace_count": Workplace.objects.filter(user=user).count(),
+                "shift_count": Shift.objects.filter(user=user).count(),
+            },
         })

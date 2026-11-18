@@ -1,0 +1,95 @@
+# KaamKoRecord's nginx over HTTPS. On once the certificate exists (see start.sh).
+#
+# The edge nginx does not decrypt anything: it reads only the name being asked for and hands the
+# whole encrypted connection here, with a PROXY protocol header carrying the visitor's address.
+# So every port-443 listener here expects that header, and believes it only from the Docker network.
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_session_cache shared:KKR_SSL:10m;
+ssl_session_timeout 1d;
+ssl_session_tickets off;
+ssl_certificate /etc/letsencrypt/live/${KAAMKORECORD_DOMAIN}/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/${KAAMKORECORD_DOMAIN}/privkey.pem;
+
+set_real_ip_from 172.16.0.0/12;
+real_ip_header proxy_protocol;
+
+# Any other name: refused.
+server {
+    listen 443 ssl default_server proxy_protocol;
+    ssl_reject_handshake on;
+}
+
+server {
+    listen 443 ssl proxy_protocol;
+    http2 on;
+    server_name www.${KAAMKORECORD_DOMAIN};
+    return 301 https://${KAAMKORECORD_DOMAIN}$request_uri;
+}
+
+server {
+    listen 443 ssl proxy_protocol;
+    http2 on;
+    server_name ${KAAMKORECORD_DOMAIN};
+
+    # The app sends big videos and files in pieces well under this; ten photos are shrunk on the
+    # phone first.
+    client_max_body_size 100m;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_min_length 1024;
+    gzip_types application/json application/javascript text/css text/plain image/svg+xml application/manifest+json;
+
+    location ^~ /static/ {
+        alias /srv/kaamkorecord/static/;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Cache-Control "public, max-age=86400" always;
+    }
+
+    # Only these upload folders are public. Message photos and files are in private_media, which
+    # is never mounted here: they only leave through the app, to people in the conversation.
+    location ~ ^/media/(avatars|stories|festivals)/ {
+        root /srv/kaamkorecord;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Content-Security-Policy "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox" always;
+        add_header Cache-Control "public, max-age=86400" always;
+    }
+
+    # Realtime chat. The connection is upgraded to a WebSocket and stays open.
+    location /ws/ {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $kaamkorecord_web http://web:8000;
+        proxy_pass $kaamkorecord_web;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;
+        proxy_read_timeout 70m;
+        proxy_send_timeout 70m;
+    }
+
+    location / {
+        # Looked up on each request: the container gets a new address on every deploy.
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $kaamkorecord_web http://web:8000;
+        proxy_pass $kaamkorecord_web;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Overwritten, not appended to, so nobody can fake their address past the rate limits.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Just above the app's own 330 seconds: a 5-minute chat video is converted before the
+        # answer comes back.
+        proxy_read_timeout 340s;
+        proxy_send_timeout 340s;
+    }
+}

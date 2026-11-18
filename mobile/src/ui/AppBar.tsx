@@ -6,7 +6,10 @@ import { useFocusEffect, useRouter } from "expo-router";
 import Svg, { Circle, Defs, LinearGradient, Mask, Path, Rect, Stop } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 
+import { useUnread } from "@/api";
+import { useSignedIn } from "@/auth/session";
 import { goBack } from "@/nav/paths";
+import { useT } from "@/i18n";
 
 import { setChromeHidden, useChromeHidden } from "./chrome";
 import { useLayout } from "./layout";
@@ -54,6 +57,7 @@ export function AppBar({ title, back, backLabel, section, right }: {
   title?: string; back?: boolean; backLabel?: string; section?: string; right?: React.ReactNode; tools?: boolean;
 }) {
   const t = useTheme();
+  const tr = useT();
   const insets = useSafeAreaInsets();
   const layout = useLayout();
   const router = useRouter();
@@ -89,7 +93,7 @@ export function AppBar({ title, back, backLabel, section, right }: {
           onLayout={(e) => measure({ backEnd: e.nativeEvent.layout.x + e.nativeEvent.layout.width })}
           style={({ pressed }) => [styles.back, { backgroundColor: pressed ? t.surface3 : t.dark ? t.surface2 : t.surface }, tool(t.dark)]}>
           <Ionicons name="chevron-back" size={22} color={t.text} />
-          {backLabel ? <Text style={{ color: t.text, fontSize: 15, fontWeight: "600", marginRight: 4 }} numberOfLines={1}>{backLabel}</Text> : null}
+          {backLabel ? <Text style={{ color: t.text, fontSize: 15, fontWeight: "600", marginRight: 4 }} numberOfLines={1}>{tr(backLabel)}</Text> : null}
         </Pressable>
       ) : (
         <Pressable onPress={() => router.navigate("/")} style={styles.brand} accessibilityLabel="KaamKoRecord, home">
@@ -99,11 +103,12 @@ export function AppBar({ title, back, backLabel, section, right }: {
         </Pressable>
       )}
       {back && title ? (
-        <Text style={[titleSpot(row), { color: t.text }]} numberOfLines={1} pointerEvents="none" testID="appbar-title">{title}</Text>
+        <Text style={[titleSpot(row), { color: t.text }]} numberOfLines={1} pointerEvents="none" testID="appbar-title">{tr(title)}</Text>
       ) : null}
       <View style={styles.tools} onLayout={(e) => measure({ toolsAt: e.nativeEvent.layout.x })}>
         {right}
-
+        {/* The main screens (no back button) carry the bell; pages deeper in keep their bar clear. */}
+        {!back ? <Bell /> : null}
       </View>
     </View>
   );
@@ -116,6 +121,30 @@ export function AppBar({ title, back, backLabel, section, right }: {
       <View style={[styles.catch, { height }]} />
       <Animated.View pointerEvents={hidden ? "none" : "box-none"} style={{ paddingTop: insets.top, opacity: shown }}>{body}</Animated.View>
     </Animated.View>
+  );
+}
+
+/** Notifications, top right, with how many are unread. Only when signed in. */
+function Bell() {
+  if (!useSignedIn()) return null;
+  return <SignedInBell />;
+}
+
+function SignedInBell() {
+  const t = useTheme(), tr = useT();
+  const router = useRouter();
+  const unread = useUnread().data?.unread ?? 0;
+  const label = unread ? tr("Notifications, {n} unread", { n: unread }) : tr("Notifications");
+  return (
+    <Pressable onPress={() => router.push("/notifications" as never)} hitSlop={6} accessibilityRole="button" accessibilityLabel={label} testID="appbar-bell"
+      style={({ pressed }) => [styles.bell, { backgroundColor: pressed ? t.surface3 : t.dark ? t.surface2 : t.surface }, tool(t.dark)]}>
+      <Ionicons name={unread ? "notifications" : "notifications-outline"} size={21} color={t.text} />
+      {unread ? (
+        <View style={[styles.badge, { backgroundColor: t.danger, borderColor: t.bg }]} testID="bell-badge">
+          <Text style={{ color: t.dangerInk, fontSize: 10.5, fontWeight: "800" }}>{unread > 99 ? "99+" : unread}</Text>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -186,4 +215,6 @@ const styles = StyleSheet.create({
   title: { position: "absolute", textAlign: "center", fontSize: 17, fontWeight: "700", letterSpacing: -0.3 },
   titleFlow: { flex: 1, minWidth: 0, textAlign: "center", fontSize: 17, fontWeight: "700", letterSpacing: -0.3 },
   tools: { flexDirection: "row", alignItems: "center", gap: 8 },
+  bell: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  badge: { position: "absolute", top: -3, right: -4, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, borderWidth: 2, alignItems: "center", justifyContent: "center" },
 });

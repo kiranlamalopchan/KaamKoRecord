@@ -187,6 +187,9 @@ export type Home = {
   /** "Monday, 21 September" — for the wide hub's header. */
   today: string;
   daily: Daily;
+  setup?: { workplace_count: number; shift_count: number };
+  /** What working a public holiday pays at your default job, when more than 1×. */
+  holiday_rate?: number | null;
 };
 
 export type PluItem = { plu_no: number; description: string };
@@ -205,6 +208,7 @@ export type Money = { gross: number; tax: number; net: number };
 export type WorkplaceBrief = { id: number; name: string; hue: number; css: string; is_default: boolean };
 export type Workplace = WorkplaceBrief & {
   address: string; hourly_rate: number | null; tax_rate: number | null; in_cash: boolean; withholds: boolean;
+  saturday_multiplier?: number; sunday_multiplier?: number; public_holiday_multiplier?: number; overtime_after_hours?: number | null; overtime_multiplier?: number;
   // Optional: a server from before the ATO scales sends neither.
   tax_scale?: TaxScale; study_loan?: boolean; tax_label?: string;
   paid_in: "BANK" | "CASH"; pay_cycle: "IRREGULAR" | "WEEK" | "FORTNIGHT" | "MONTH"; pay_cycle_label: string;
@@ -264,8 +268,9 @@ export type ClockState = {
   target_hours: number; long_shift: boolean; limit: LimitCard | null;
   /** A cash job with no cap: the hours owed for, where the cap bar would be. */
   tally: CashTally | null;
-  message?: string; finished?: number;
+  message?: string; finished?: number; replayed?: boolean;
 };
+export type ClockActionMeta = { client_id: string; client_time: string; client_tz: string };
 export type CashTally = { workplace: WorkplaceBrief; label: string; sub: string; total: Duration; pay: Money | null };
 export type NewShift = { supports_offline_drafts?: boolean; workplaces: WorkplaceBrief[]; workplace: number | null; clock_in: string; clock_out: string };
 export type ShiftInput = { client_id?: string; workplace: number | ""; clock_in: string; clock_out: string; note: string; breaks: { id?: number; break_start: string; break_end: string; delete?: boolean }[] };
@@ -282,6 +287,7 @@ export type WorkplacesPage = {
 };
 export type WorkplaceInput = {
   name: string; address: string; color: number | ""; pay_cycle: string; paid_in: string; hourly_rate: string; tax_rate: string;
+  saturday_multiplier?: string; sunday_multiplier?: string; public_holiday_multiplier?: string; overtime_after_hours?: string; overtime_multiplier?: string;
   tax_scale?: string; study_loan?: boolean;
   hours_limit: string; limit_period: string; week_starts_on: number; fortnight_starts_on: number; fortnight_phase: string; month_starts_on: number | string; is_default: boolean;
 };
@@ -291,13 +297,14 @@ export type PayRow = {
   owed_pay: Money | null; since: string | null; earliest: string | null; current: PayRun | null; due: PayRun[];
   covers: Choice[]; last_payment: { covers_through: string; hours: number; amount: number | null } | null;
 };
-export type PayPage = { owing: PayRow[]; owed_total: Duration; today: string; message?: string };
+export type PayForecast = { days: number; rows: { workplace: WorkplaceBrief; shifts: number; hours: number; gross: number; tax: number; net: number }[]; gross: number; net: number };
+export type PayPage = { owing: PayRow[]; owed_total: Duration; today: string; forecast?: PayForecast; message?: string };
 export type MorePage = { workplace_count: number; unpaid_total: Duration };
 export type Activity = {
   week_hours: number; shift_count: number; workplace_count: number; friend_count: number; notice_count: number; comment_count: number; reactions_received: number;
   statement: { this_month: [string, string]; last_month: [string, string]; today: string; workplaces: { id: number; name: string }[] };
 };
-export type PayslipRead = { fields: Record<string, string | number>; read: { label: string; value: string; how: string }[]; notes: string[] };
+export type PayslipRead = { fields: Record<string, string | number | boolean>; read: { label: string; value: string; how: string }[]; notes: string[] };
 export type Going = { shifts: number; breaks: number; payments: number; worked: Duration; span: string | null };
 
 // ---- Safety: blocking people and reporting posts -----------------------------
@@ -335,9 +342,47 @@ export type PlannedInput = { workplace: number | ""; starts: string; ends: strin
 
 // ---- messages -----------------------------------------------------------------
 
-export type ChatMessage = { id: number; body: string; mine: boolean; at: string; day: string; time: string; read: boolean };
-export type ChatThreads = { threads: { person: Person; last: ChatMessage; unread: number }[]; unread: number };
-export type ChatThread = { person: Person; can_send: boolean; max_length: number; messages: ChatMessage[]; more: boolean };
+export type ChatMessage = {
+  id: number; client_id?: string | null; body: string; mine: boolean; at: string; day: string; time: string;
+  read: boolean; status?: "sent" | "delivered" | "read"; edited?: boolean; unsent?: boolean;
+  photo?: string | null; reactions?: { emoji: string; count: number }[]; my_reaction?: string | null;
+  reply?: { id: number; body: string; mine: boolean; photo: boolean; unsent: boolean } | null;
+};
+export type ChatAttachment = {
+  id: string; kind: "photo" | "video" | "audio" | "file"; url: string; thumb: string | null; download: string;
+  name: string; content_type: string; size: number; duration: number | null; width: number | null; height: number | null;
+  quality: string; waveform: number[];
+};
+export type ChatStatus = "pending" | "sending" | "sent" | "delivered" | "read" | "failed";
+/** A message in a conversation (direct or group) from the conversation endpoints. */
+export type ConvoMessage = Omit<ChatMessage, "status" | "reply"> & {
+  conversation_id: string; sender: Person; attachments: ChatAttachment[]; forwarded: boolean;
+  event: string | null; pinned: boolean; status?: ChatStatus;
+  reply?: { id: number; body: string; mine: boolean; photo: boolean; unsent: boolean; sender?: string; attachment?: string | null } | null;
+};
+export type ConvoSummary = {
+  id: string; kind: "direct" | "group"; title: string; person: Person | null; photo: string | null; initial: string; hue: number;
+  pinned: boolean; muted: boolean; archived: boolean; role: "admin" | "member"; member_count?: number; unread?: number;
+  last?: {
+    id: number; body: string; mine: boolean; sender: string; at: string; time: string; day: string;
+    unsent: boolean; event: string | null; attachment: string | null; status: "sent" | "delivered" | "read" | null;
+  };
+};
+export type ChatLimits = {
+  photo_max_bytes: number; photo_batch: number; video_max_bytes: number; video_max_seconds: number;
+  audio_max_seconds: number; audio_max_bytes: number; file_max_bytes: number; file_types: string[];
+};
+export type ConvoPage = {
+  conversation: ConvoSummary; messages: ConvoMessage[]; more: boolean | null; more_newer: boolean; first_unread: number | null;
+  can_send: boolean; why_not: string; max_length: number; limits: ChatLimits; typing: string[];
+};
+export type Inbox = { conversations: ConvoSummary[]; next: number | null; unread: number };
+export type ChatMember = Person & { role: "admin" | "member" };
+export type GalleryItem = ChatAttachment & { message_id: number; at: string };
+export type LinkItem = { url: string; message_id: number; at: string };
+export type ChatThreadRow = { conversation_id: string; person: Person; last: ChatMessage; unread: number; pinned: boolean; muted: boolean; archived: boolean };
+export type ChatThreads = { threads: ChatThreadRow[]; unread: number };
+export type ChatThread = { conversation_id: string; person: Person; can_send: boolean; max_length: number; messages: ChatMessage[]; more: boolean; typing?: boolean };
 
 // ---- a payslip, checked ---------------------------------------------------------
 

@@ -1,3 +1,2 @@
-import { Redirect } from "expo-router";
-/** Retain links from existing push notifications and older app routes. */
-export default function NotificationsRoute() { return <Redirect href="/alerts" />; }
+/** Notifications: opened from the bell at the top right of the main screens, and by a notification's link. */
+export { default } from "@/screens/Inbox";

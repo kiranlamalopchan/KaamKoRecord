@@ -8,7 +8,7 @@ an `Authorization: Token …` header on everything else.
 
 from django.urls import path
 
-from .views import social_auth, support, catalogue, auth, board, chat, festivals, friends, holidays, home, me, moderation, notifications, plu, roster, stories, timeclock, uploads
+from .views import social_auth, support, catalogue, auth, board, chat, conversations, festivals, friends, holidays, home, me, moderation, notifications, plu, roster, stories, timeclock, uploads
 
 app_name = "api"
 
@@ -27,6 +27,7 @@ urlpatterns = [
     path("me/photo/", me.Photo.as_view(), name="me_photo"),
     path("me/holiday-state/", me.HolidayState.as_view(), name="me_holiday_state"),
     path("devices/", me.Devices.as_view(), name="devices"),
+    path("devices/preferences/", me.DevicePreferences.as_view(), name="device_preferences"),
 
     path("mobile/release/", support.Release.as_view(), name="mobile_release"),
     path("support/reports/", support.Report.as_view(), name="support_report"),
@@ -55,9 +56,34 @@ urlpatterns = [
     path("friends/decline/<int:pk>/", friends.FriendRequestDecline.as_view(), name="friend_request_decline"),
     path("friends/remove/<str:username>/", friends.FriendRemove.as_view(), name="friend_remove"),
 
+    # Conversations (direct and group) by their stable id — what the current app uses.
+    path("messages/inbox/", conversations.Inbox.as_view(), name="message_inbox"),
+    path("messages/inbox/unread/", conversations.InboxUnread.as_view(), name="message_inbox_unread"),
+    path("messages/c/<uuid:conversation_id>/", conversations.ConversationView.as_view(), name="message_conversation"),
+    path("messages/c/<uuid:conversation_id>/typing/", conversations.ConversationTyping.as_view(), name="message_conversation_typing"),
+    path("messages/c/<uuid:conversation_id>/read/", conversations.Read.as_view(), name="message_conversation_read"),
+    path("messages/c/<uuid:conversation_id>/members/", conversations.Members.as_view(), name="message_members"),
+    path("messages/c/<uuid:conversation_id>/members/<str:username>/", conversations.Members.as_view(), name="message_member"),
+    path("messages/c/<uuid:conversation_id>/media/", conversations.Gallery.as_view(), name="message_gallery"),
+    path("messages/c/<uuid:conversation_id>/search/", conversations.Search.as_view(), name="message_search"),
+    path("messages/c/<uuid:conversation_id>/pins/", conversations.Pins.as_view(), name="message_pins"),
+    path("messages/c/<uuid:pk>/photo/", conversations.GroupPhoto.as_view(), name="message_group_photo"),
+    path("messages/item/<int:pk>/delivered/", conversations.Delivered.as_view(), name="message_delivered"),
+    path("messages/item/<int:pk>/hide/", conversations.Hide.as_view(), name="message_hide"),
+    path("messages/item/<int:pk>/pin/", conversations.Pin.as_view(), name="message_pin"),
+    path("messages/item/<int:pk>/forward/", conversations.Forward.as_view(), name="message_forward"),
+    path("messages/item/<int:pk>/report/", conversations.ReportMessage.as_view(), name="message_report"),
+    path("messages/attachment/<uuid:pk>/", conversations.AttachmentFile.as_view(), name="message_attachment"),
     path("messages/", chat.Threads.as_view(), name="messages"),
+    path("messages/people/", chat.People.as_view(), name="message_people"),
+    path("messages/realtime-ticket/", chat.RealtimeTicket.as_view(), name="message_realtime_ticket"),
     path("messages/unread/", chat.Unread.as_view(), name="messages_unread"),
+    path("messages/conversations/<uuid:conversation_id>/settings/", chat.ConversationSettings.as_view(), name="message_conversation_settings"),
     path("messages/<str:username>/", chat.Thread.as_view(), name="message_thread"),
+    path("messages/<str:username>/typing/", chat.Typing.as_view(), name="message_typing"),
+    path("messages/item/<int:pk>/", chat.MessageDetail.as_view(), name="message_detail"),
+    path("messages/item/<int:pk>/react/", chat.React.as_view(), name="message_react"),
+    path("messages/item/<int:pk>/photo/", chat.Photo.as_view(), name="message_photo"),
 
     path("roster/", roster.Roster.as_view(), name="roster"),
     path("roster/<int:pk>/", roster.RosterShift.as_view(), name="roster_shift"),
@@ -115,4 +141,5 @@ urlpatterns = [
     path("timesheet/pay/<int:pk>/undo/", timeclock.PaymentUndo.as_view(), name="payment_undo"),
     path("timesheet/more/", timeclock.More.as_view(), name="more"),
     path("timesheet/statement/", timeclock.Statement.as_view(), name="statement"),
+    path("timesheet/export.csv", timeclock.StatementCsv.as_view(), name="statement_csv"),
 ]

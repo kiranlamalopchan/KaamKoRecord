@@ -12,19 +12,21 @@ so the app draws and the server decides.
 """
 
 import calendar as pycalendar
+import csv
 import hashlib
 import json
 import uuid
+from io import StringIO
 from django.db import transaction
 from django.contrib.auth import get_user_model
-from ..models import ShiftReceipt
-from datetime import date, timedelta
+from ..models import ClockActionReceipt, ShiftReceipt
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
 from django.core.exceptions import ValidationError
 from django.db.models import Prefetch
-from django.http import QueryDict
+from django.http import HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.response import Response
@@ -39,6 +41,7 @@ from apps.timeclock.models import (
 )
 from apps.timeclock.figures import duration, trend_json
 from apps.timeclock.templatetags.timeclock_extras import decimal_hours, hm, hms, minutes
+from apps.roster.models import PlannedShift
 
 from .. import serialize
 from ..errors import form_errors
@@ -76,6 +79,11 @@ def workplace_full(w):
     data.update({
         "address": w.address,
         "hourly_rate": float(w.hourly_rate) if w.hourly_rate is not None else None,
+        "saturday_multiplier": float(w.saturday_multiplier),
+        "sunday_multiplier": float(w.sunday_multiplier),
+        "public_holiday_multiplier": float(w.public_holiday_multiplier),
+        "overtime_after_hours": float(w.overtime_after_hours) if w.overtime_after_hours is not None else None,
+        "overtime_multiplier": float(w.overtime_multiplier),
         "tax_rate": float(w.tax_rate) if w.tax_rate is not None else None,
         "tax_scale": w.tax_scale,
         "study_loan": w.study_loan,
@@ -292,15 +300,50 @@ class Clock(APIView):
         return Response(clock_state(request.user, request.GET.get("workplace")))
 
 
+def _clock_action(request, action):
+    # Every clock mutation for one account is serialised on its user row.
+    # The surrounding atomic block then makes the state change and receipt a
+    # single operation, including two simultaneous retries of the same tap.
+    get_user_model().objects.select_for_update().only("pk").get(pk=request.user.pk)
+    raw = str(request.data.get("client_id") or "")
+    # Older app builds did not send one. Their online tap still works; new
+    # builds carry an id so a queued/retried tap can be replayed safely.
+    if not raw:
+        return uuid.uuid4(), None
+    try:
+        client_id = uuid.UUID(raw)
+    except (ValueError, TypeError, AttributeError):
+        return None, Response({"detail": "This clock action has no valid identifier. Try again."}, status=400)
+    receipt = ClockActionReceipt.objects.filter(user=request.user, client_id=client_id).first()
+    if receipt:
+        if receipt.action != action:
+            return None, Response({"detail": "That clock action does not match the original request."}, status=409)
+        state = clock_state(request.user)
+        if action == "clock_out" and receipt.shift_id:
+            state["finished"] = receipt.shift_id
+        state["replayed"] = True
+        return None, Response(state)
+    return client_id, None
+
+
+def _remember_clock_action(request, client_id, action, shift=None):
+    ClockActionReceipt.objects.create(user=request.user, client_id=client_id, action=action, shift=shift)
+
+
 class ClockIn(APIView):
+    @transaction.atomic
     def post(self, request):
+        client_id, replay = _clock_action(request, "clock_in")
+        if replay:
+            return replay
         workplace = Workplace.objects.filter(pk=request.data.get("workplace"), user=request.user).first()
         if workplace is None:
             return Response({"detail": "Pick a workplace before clocking in."}, status=400)
         try:
-            Shift.clock_in_now(request.user, workplace, when=site._client_now(_shim(request)))
+            shift = Shift.clock_in_now(request.user, workplace, when=site._client_now(_shim(request)))
         except ValidationError as exc:
             return Response({"detail": "; ".join(exc.messages)}, status=400)
+        _remember_clock_action(request, client_id, "clock_in", shift)
         state = clock_state(request.user, workplace.pk)
         state["message"] = f"Clocked in at {timezone.localtime():%-I:%M %p}."
         return Response(state)
@@ -314,7 +357,11 @@ def _open_shift(request):
 
 
 class StartBreak(APIView):
+    @transaction.atomic
     def post(self, request):
+        client_id, replay = _clock_action(request, "start_break")
+        if replay:
+            return replay
         shift, err = _open_shift(request)
         if err:
             return err
@@ -322,13 +369,18 @@ class StartBreak(APIView):
             shift.start_break(when=site._client_now(_shim(request)))
         except ValidationError as exc:
             return Response({"detail": "; ".join(exc.messages)}, status=400)
+        _remember_clock_action(request, client_id, "start_break", shift)
         state = clock_state(request.user)
         state["message"] = f"Break started at {timezone.localtime():%-I:%M %p}."
         return Response(state)
 
 
 class EndBreak(APIView):
+    @transaction.atomic
     def post(self, request):
+        client_id, replay = _clock_action(request, "end_break")
+        if replay:
+            return replay
         shift, err = _open_shift(request)
         if err:
             return err
@@ -336,13 +388,18 @@ class EndBreak(APIView):
             shift.end_break(when=site._client_now(_shim(request)))
         except ValidationError as exc:
             return Response({"detail": "; ".join(exc.messages)}, status=400)
+        _remember_clock_action(request, client_id, "end_break", shift)
         state = clock_state(request.user)
         state["message"] = "Back on the clock."
         return Response(state)
 
 
 class ClockOut(APIView):
+    @transaction.atomic
     def post(self, request):
+        client_id, replay = _clock_action(request, "clock_out")
+        if replay:
+            return replay
         shift, err = _open_shift(request)
         if err:
             return err
@@ -350,6 +407,7 @@ class ClockOut(APIView):
             shift.clock_out_now(when=site._client_now(_shim(request)))
         except ValidationError as exc:
             return Response({"detail": "; ".join(exc.messages)}, status=400)
+        _remember_clock_action(request, client_id, "clock_out", shift)
         state = clock_state(request.user)
         state["finished"] = shift.pk
         return Response(state)
@@ -798,7 +856,7 @@ class PayslipCheck(APIView):
         shifts = [s for s in workplace.shifts_between(slip.period_start, slip.period_end + timedelta(days=1)) if not s.is_open]
         worked = sum((s.worked_duration for s in shifts), timedelta())
         logged_hours = Decimal(str(round(worked.total_seconds() / 3600, 2)))
-        logged_gross = Decimal(str(workplace.gross_for(float(logged_hours)))) if workplace.hourly_rate is not None else None
+        logged_gross = Decimal(str(sum((workplace.gross_for_shift(shift) for shift in shifts), 0))) if workplace.hourly_rate is not None else None
 
         # Hours as printed; or, on a slip that prints only money, what the
         # gross comes to at this job's rate.
@@ -923,10 +981,29 @@ def pay_row(state):
 def pay_page(user):
     places = Workplace.objects.filter(user=user).prefetch_related("payments")
     rows = [pay_row(site._pay_state(w)) for w in places]
+    today = timezone.localdate()
+    forecast_rows = []
+    planned = list(PlannedShift.upcoming_for(user).filter(starts__date__lte=today + timedelta(days=14)))
+    for workplace in places:
+        shifts = [row for row in planned if row.workplace_id == workplace.pk]
+        if workplace.hourly_rate is None or not shifts:
+            continue
+        hours = sum((row.duration.total_seconds() / 3600 for row in shifts), 0.0)
+        gross = sum((workplace.gross_for_span(row.duration.total_seconds() / 3600, timezone.localtime(row.starts).date(), user) for row in shifts), 0.0)
+        # Tax each planned pay run at its real cadence, then add the runs.
+        runs = {}
+        for row in shifts:
+            day = timezone.localtime(row.starts).date()
+            window, period = workplace.tax_period(day)
+            key = (window[0], period)
+            runs[key] = runs.get(key, 0.0) + workplace.gross_for_span(row.duration.total_seconds() / 3600, day, user)
+        tax = sum(workplace.withholding(run_gross, period, start) for (start, period), run_gross in runs.items())
+        forecast_rows.append({"workplace": workplace_brief(workplace), "shifts": len(shifts), "hours": round(hours, 2), "gross": round(gross, 2), "tax": round(tax, 2), "net": round(gross - tax, 2)})
     return {
         "owing": rows,
         "owed_total": duration(sum((site._pay_state(w)["worked"] for w in places), timedelta())),
-        "today": timezone.localdate().isoformat(),
+        "today": today.isoformat(),
+        "forecast": {"days": 14, "rows": forecast_rows, "gross": round(sum(row["gross"] for row in forecast_rows), 2), "net": round(sum(row["net"] for row in forecast_rows), 2)},
     }
 
 
@@ -989,3 +1066,51 @@ class Statement(APIView):
 
     def get(self, request):
         return site.statement(request._request)
+
+
+class StatementCsv(APIView):
+    """A spreadsheet-friendly copy of the same private shift record."""
+
+    def get(self, request):
+        span = site.statement_range(request._request)
+        if span is None:
+            return Response({"detail": "Choose valid dates no more than one year apart."}, status=400)
+        first, last = span
+        tz = timezone.get_current_timezone()
+        start = timezone.make_aware(datetime.combine(first, time.min), tz)
+        end = timezone.make_aware(datetime.combine(last + timedelta(days=1), time.min), tz)
+        rows = Shift.objects.filter(user=request.user, clock_in__gte=start, clock_in__lt=end).select_related("workplace").prefetch_related("breaks").order_by("clock_in", "pk")
+        workplace = str(request.GET.get("workplace") or "")
+        if workplace:
+            if not workplace.isascii() or not workplace.isdigit():
+                return Response({"detail": "Choose one of your workplaces."}, status=400)
+            rows = rows.filter(workplace_id=int(workplace), workplace__user=request.user)
+
+        output = StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(["Date", "Workplace", "Clock in", "Clock out", "Break hours", "Worked hours", "Gross", "Tax", "Take-home", "Note"])
+        for shift in rows:
+            priced = shift.pay
+            writer.writerow([
+                timezone.localtime(shift.clock_in).date().isoformat(),
+                _safe_csv(shift.workplace.name if shift.workplace else ""),
+                timezone.localtime(shift.clock_in).isoformat(timespec="minutes"),
+                timezone.localtime(shift.clock_out).isoformat(timespec="minutes") if shift.clock_out else "",
+                f"{shift.total_break.total_seconds() / 3600:.2f}",
+                f"{shift.worked_duration.total_seconds() / 3600:.2f}",
+                f"{priced.gross:.2f}" if priced else "",
+                f"{priced.tax:.2f}" if priced else "",
+                f"{priced.net:.2f}" if priced else "",
+                _safe_csv(shift.note),
+            ])
+        response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="KaamKoRecord-{first}-to-{last}.csv"'
+        return response
+
+
+def _safe_csv(value):
+    """Keep user-written spreadsheet cells from becoming formulas."""
+    text = str(value or "")
+    if text[:1] in ("\t", "\r") or text.lstrip()[:1] in ("=", "+", "-", "@"):
+        return "'" + text
+    return text

@@ -106,6 +106,9 @@ class Kind(models.TextChoices):
     COMMENT = "comment", "Comment"
     STORY = "story", "Story"
     USER = "user", "Person"
+    # A private message, reported by somebody it was sent to. Only that one
+    # message's words reach the moderators, never the conversation around it.
+    MESSAGE = "message", "Message"
 
 
 class Reason(models.TextChoices):
@@ -162,7 +165,10 @@ class Report(models.Model):
         """
         accused = target if kind == Kind.USER else getattr(target, "author", None)
         excerpt = ""
-        if kind in (Kind.NOTICE, Kind.COMMENT):
+        if kind == Kind.MESSAGE:
+            accused = target.sender
+            excerpt = (target.body or "")[:200]
+        elif kind in (Kind.NOTICE, Kind.COMMENT):
             excerpt = (target.body or "")[:200]
         elif kind == Kind.STORY:
             excerpt = (target.caption or "")[:200]

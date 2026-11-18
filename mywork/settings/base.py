@@ -19,6 +19,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # Applications
 # --------------------------------------------------------------------------
 DJANGO_APPS = [
+    # Owns the ASGI development server; must precede staticfiles.
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -57,6 +59,7 @@ LOCAL_APPS = [
 ]
 
 THIRD_PARTY_APPS = [
+    'channels',
     # Django REST Framework, for apps.api; authtoken holds the app's tokens.
     'rest_framework',
     'rest_framework.authtoken',
@@ -94,6 +97,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'mywork.urls'
 WSGI_APPLICATION = 'mywork.wsgi.application'
+ASGI_APPLICATION = 'mywork.asgi.application'
 
 
 # --------------------------------------------------------------------------
@@ -202,6 +206,21 @@ VAPID_CONTACT_EMAIL = ''
 # require. Set CONTACT_EMAIL in .env; the push contact address stands in.
 import os  # noqa: E402
 CONTACT_EMAIL = os.environ.get('CONTACT_EMAIL', '') or os.environ.get('VAPID_CONTACT_EMAIL', '')
+
+# One in-memory layer is enough for local development. Production sets
+# REDIS_URL so events reach every ASGI process and survive reconnects.
+if os.environ.get('REDIS_URL'):
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [os.environ['REDIS_URL']],
+                'symmetric_encryption_keys': [os.environ.get('DJANGO_SECRET_KEY', 'local-development')],
+            },
+        },
+    }
+else:
+    CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
 
 # Words the board refuses outright, on top of the built-in few
 # (apps/moderation/filter.py). Comma-separated in the environment.

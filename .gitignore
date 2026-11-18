@@ -18,6 +18,8 @@ db.sqlite3-shm
 # Profile photos people upload. They belong with the database they are keyed
 # to, not with the code — and they are somebody's face, not a project asset.
 media/
+# Participant-only message photos. Never publish these with source code.
+private_media/
 
 .DS_Store
 

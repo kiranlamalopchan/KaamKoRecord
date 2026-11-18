@@ -295,6 +295,11 @@ class Workplace(models.Model):
         max_digits=7, decimal_places=2, null=True, blank=True,
         help_text="Optional. Used to estimate pay alongside your hours.",
     )
+    saturday_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=1, validators=[MinValueValidator(1), MaxValueValidator(5)])
+    sunday_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=1, validators=[MinValueValidator(1), MaxValueValidator(5)])
+    public_holiday_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=1, validators=[MinValueValidator(1), MaxValueValidator(5)])
+    overtime_after_hours = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0.25), MaxValueValidator(24)])
+    overtime_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=1.5, validators=[MinValueValidator(1), MaxValueValidator(5)])
     # Cash in hand or into an account. Cash has no withholding to work out, so
     # everything about tax drops away for that job rather than sitting there
     # unanswered — see PaidIn.
@@ -561,6 +566,30 @@ class Workplace(models.Model):
     def gross_for(self, hours):
         return round(float(self.hourly_rate) * hours, 2)
 
+    def penalty_multiplier(self, day, user=None):
+        if user is not None:
+            from apps.holidays.models import HolidayPreference, PublicHoliday
+            state = HolidayPreference.state_for(user)
+            if PublicHoliday.visible_to(state).filter(date=day).exists():
+                return float(self.public_holiday_multiplier)
+        if day.weekday() == Weekday.SATURDAY:
+            return float(self.saturday_multiplier)
+        if day.weekday() == Weekday.SUNDAY:
+            return float(self.sunday_multiplier)
+        return 1.0
+
+    def gross_for_span(self, hours, day, user=None):
+        """Gross for one shift, applying its day rate and per-shift overtime."""
+        rate = float(self.hourly_rate)
+        day_multiplier = self.penalty_multiplier(day, user)
+        threshold = float(self.overtime_after_hours) if self.overtime_after_hours is not None else hours
+        ordinary = min(hours, threshold)
+        overtime = max(0.0, hours - threshold)
+        return round(rate * ordinary * day_multiplier + rate * overtime * max(day_multiplier, float(self.overtime_multiplier)), 2)
+
+    def gross_for_shift(self, shift):
+        return self.gross_for_span(shift.worked_duration.total_seconds() / 3600, timezone.localtime(shift.clock_in).date(), shift.user)
+
     def withholding(self, gross, period, start):
         """
         What comes out of one pay of `gross` for the period opening `start`.
@@ -581,7 +610,7 @@ class Workplace(models.Model):
             # paid since 1 July.
             year_start = paygw.financial_year_start(start)
             paid = sum(
-                self.gross_for(s.worked_duration.total_seconds() / 3600)
+                self.gross_for_shift(s)
                 for s in self.shifts_between(year_start, start)
             )
         return float(paygw.withhold(
@@ -907,7 +936,7 @@ def price_shifts(shifts):
         known = {s.pk for s in everyone}
         everyone += [s for s in mine if s.pk not in known]
 
-        earned = [(s.pk, place.gross_for(s.worked_duration.total_seconds() / 3600)) for s in everyone]
+        earned = [(s.pk, place.gross_for_shift(s)) for s in everyone]
         total = round(sum(g for _, g in earned), 2)
         tax = place.withholding(total, period, window[0])
 

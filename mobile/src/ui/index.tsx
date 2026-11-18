@@ -103,18 +103,20 @@ export const PAGE_BOTTOM = Platform.OS === "ios" ? 24 : 40;
 
 export function PageTitle({ children, sub, style }: { children: React.ReactNode; sub?: string; style?: ViewStyle }) {
   const t = useTheme();
+  const tr = useT();
   const { compact } = useLayout();
   return (
     <View style={[styles.pageHead, style]}>
-      <Text style={[styles.pageTitle, { color: t.text }, compact && { fontSize: 29, lineHeight: 34 }]}>{children}</Text>
-      {sub ? <Text style={[styles.pageSub, { color: t.muted }]}>{sub}</Text> : null}
+      <Text accessibilityRole="header" style={[styles.pageTitle, { color: t.text }, compact && { fontSize: 29, lineHeight: 34 }]}>{typeof children === "string" ? tr(children) : children}</Text>
+      {sub ? <Text style={[styles.pageSub, { color: t.muted }]}>{tr(sub)}</Text> : null}
     </View>
   );
 }
 
 export function SectionLabel({ children, style }: { children: React.ReactNode; style?: TextStyle }) {
   const t = useTheme();
-  return <Text style={[styles.sectionLabel, { color: t.muted }, style]}>{children}</Text>;
+  const tr = useT();
+  return <Text accessibilityRole="header" style={[styles.sectionLabel, { color: t.muted }, style]}>{typeof children === "string" ? tr(children) : children}</Text>;
 }
 
 // ---- surfaces --------------------------------------------------------------------
@@ -162,13 +164,14 @@ export function Rule({ style }: { style?: ViewStyle }) {
 
 export function Empty({ icon, title, sub, action, card = true }: { icon: keyof typeof Ionicons.glyphMap; title: string; sub?: string; action?: React.ReactNode; card?: boolean }) {
   const t = useTheme();
+  const tr = useT();
   const body = (
     <View style={styles.empty}>
       <View style={[styles.emptyIcon, { backgroundColor: t.brandSoft }]}>
         <Ionicons name={icon} size={28} color={t.brand} />
       </View>
-      <Text style={[styles.emptyTitle, { color: t.text }]}>{title}</Text>
-      {sub ? <Text style={[styles.emptySub, { color: t.muted }]}>{sub}</Text> : null}
+      <Text style={[styles.emptyTitle, { color: t.text }]}>{tr(title)}</Text>
+      {sub ? <Text style={[styles.emptySub, { color: t.muted }]}>{tr(sub)}</Text> : null}
       {action ? <View style={{ marginTop: sp[4] }}>{action}</View> : null}
     </View>
   );
@@ -238,6 +241,8 @@ export function Button({
   icon?: keyof typeof Ionicons.glyphMap; style?: ViewStyle; testID?: string; accessibilityLabel?: string;
 }) {
   const t = useTheme();
+  const tr = useT();
+  const shownTitle = tr(title);
   const primary = kind === "primary" || kind === "pill";
   const bg = primary ? t.brand : kind === "danger" ? t.dangerSoft : kind === "ghost" ? "transparent" : t.dark ? t.surface3 : t.surface2;
   const ink = primary ? t.brandInk : kind === "danger" ? t.danger : kind === "ghost" ? t.brand : t.text;
@@ -246,8 +251,10 @@ export function Button({
     <Pressable
       onPress={onPress ? () => { tap(primary || kind === "danger" ? "medium" : "light"); onPress(); } : undefined}
       disabled={disabled || busy}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!(disabled || busy), busy: !!busy }}
       testID={testID}
-      accessibilityLabel={accessibilityLabel || title}
+      accessibilityLabel={accessibilityLabel || shownTitle}
       style={(state) => [
         styles.button,
         small && styles.buttonSm,
@@ -258,7 +265,7 @@ export function Button({
       {busy ? <ActivityIndicator color={ink} /> : (
         <>
           {icon ? <Ionicons name={icon} size={small ? 16 : 19} color={ink} /> : null}
-          <Text style={{ color: ink, fontWeight: "700", fontSize: small ? 14 : 16, letterSpacing: -0.2 }}>{title}</Text>
+          <Text style={{ color: ink, fontWeight: "700", fontSize: small ? 14 : 16, letterSpacing: -0.2 }}>{shownTitle}</Text>
         </>
       )}
     </Pressable>
@@ -276,8 +283,9 @@ export function Input(props: TextInputProps & { invalid?: boolean }) {
       ref={ref}
       placeholderTextColor={t.muted}
       {...rest}
+      accessibilityState={{ ...rest.accessibilityState, disabled: rest.editable === false }}
       onFocus={(e) => { reveal(ref.current); onFocus?.(e); }}
-      style={[styles.input, { backgroundColor: t.dark ? t.surface3 : t.surface2, borderColor: invalid ? t.danger : "transparent", color: t.text }, props.style]}
+      style={[styles.input, { backgroundColor: t.field, borderColor: invalid ? t.danger : t.fieldLine, color: t.text }, props.style]}
     />
   );
 }
@@ -293,11 +301,12 @@ export function Input(props: TextInputProps & { invalid?: boolean }) {
  */
 export function Field({ label, help, error, filled, children }: { label?: string; help?: string; error?: string; filled?: boolean; children: React.ReactNode }) {
   const t = useTheme();
+  const tr = useT();
   return (
     <View style={[{ gap: sp[2] }, filled ? [styles.fieldFilled, { backgroundColor: alpha(t.violet, 0.09), borderColor: alpha(t.violet, 0.4) }] : null]}>
       {label ? (
         <View style={styles.fieldHead}>
-          <Text style={[styles.label, { color: t.text2 }]}>{label}</Text>
+          <Text style={[styles.label, { color: t.text2 }]}>{tr(label)}</Text>
           {filled ? (
             <View style={[styles.fieldTag, { backgroundColor: alpha(t.violet, 0.18) }]}>
               <Ionicons name="document-text" size={11} color={t.violet} />
@@ -307,16 +316,16 @@ export function Field({ label, help, error, filled, children }: { label?: string
         </View>
       ) : null}
       {children}
-      {error ? <Text style={[styles.help, { color: t.danger }]}>{error}</Text> : help ? <Text style={[styles.help, { color: t.muted }]}>{help}</Text> : null}
+      {error ? <Text accessibilityRole="alert" style={[styles.help, { color: t.danger }]}>{tr(error)}</Text> : help ? <Text style={[styles.help, { color: t.muted }]}>{tr(help)}</Text> : null}
     </View>
   );
 }
 
-export function IconButton({ icon, onPress, color, size = 22, label, style }: { icon: keyof typeof Ionicons.glyphMap; onPress?: () => void; color?: string; size?: number; label?: string; style?: StyleProp<ViewStyle> }) {
+export function IconButton({ icon, onPress, color, size = 22, label, style }: { icon: keyof typeof Ionicons.glyphMap; onPress?: () => void; color?: string; size?: number; label: string; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
   return (
-    <Pressable onPress={onPress} hitSlop={10} accessibilityLabel={label} style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.6 : 1 }, style]}>
-      <Ionicons name={icon} size={size} color={color || t.text2} />
+    <Pressable onPress={onPress} hitSlop={10} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => [styles.iconBtn, { opacity: pressed ? 0.6 : 1 }, style]}>
+      <Ionicons name={icon} size={size} color={color || t.text2} accessibilityElementsHidden />
     </Pressable>
   );
 }
@@ -358,6 +367,7 @@ export function MenuRow({ icon, title, sub, value, onPress, tint, last, stacked,
   onPress: () => void; tint?: string; last?: boolean; stacked?: boolean; testID?: string;
 }) {
   const t = useTheme();
+  const tr = useT();
   const ink = tint || t.brand;
   const press = (pressed: boolean) => ({ backgroundColor: pressed ? alpha(ink, 0.09) : "transparent" });
   const mark = (
@@ -370,8 +380,8 @@ export function MenuRow({ icon, title, sub, value, onPress, tint, last, stacked,
     return (
       <Pressable testID={testID} onPress={() => { tap("light"); onPress(); }} style={({ pressed }) => [styles.menuTile, { backgroundColor: pressed ? mix(ink, t.surface, 0.09) : t.surface, borderColor: t.line }]}>
         {mark}
-        <Text style={{ color: t.text, fontWeight: "700", fontSize: 16, marginTop: sp[3] }}>{title}</Text>
-        {sub ? <Text style={{ color: t.muted, fontSize: 13, marginTop: 2, lineHeight: 18 }}>{sub}</Text> : null}
+        <Text style={{ color: t.text, fontWeight: "700", fontSize: 16, marginTop: sp[3] }}>{tr(title)}</Text>
+        {sub ? <Text style={{ color: t.muted, fontSize: 13, marginTop: 2, lineHeight: 18 }}>{tr(sub)}</Text> : null}
         {value ? <Text style={{ color: ink, fontWeight: "700", fontSize: 15, marginTop: sp[2], fontVariant: ["tabular-nums"] }}>{value}</Text> : null}
       </Pressable>
     );
@@ -382,8 +392,8 @@ export function MenuRow({ icon, title, sub, value, onPress, tint, last, stacked,
       {mark}
       <View style={[styles.menuBody, { borderBottomColor: t.line, borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth }]}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: t.text, fontWeight: "600", fontSize: 16 }} numberOfLines={1}>{title}</Text>
-          {sub ? <Text style={{ color: t.muted, fontSize: 13, marginTop: 2 }} numberOfLines={1}>{sub}</Text> : null}
+          <Text style={{ color: t.text, fontWeight: "600", fontSize: 16 }} numberOfLines={1}>{tr(title)}</Text>
+          {sub ? <Text style={{ color: t.muted, fontSize: 13, marginTop: 2 }} numberOfLines={1}>{tr(sub)}</Text> : null}
         </View>
         {value ? <Text style={{ color: t.text2, fontWeight: "700", fontSize: 14.5, fontVariant: ["tabular-nums"] }}>{value}</Text> : null}
         <Ionicons name="chevron-forward" size={18} color={t.lineStrong} />
@@ -471,12 +481,12 @@ const styles = StyleSheet.create({
   fieldTag: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.pill },
   alert: { flexDirection: "row", alignItems: "center", gap: sp[3], padding: sp[3], paddingHorizontal: sp[4], borderRadius: radius.md, borderWidth: 1 },
   button: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: sp[2], minHeight: 52, paddingHorizontal: sp[6], borderRadius: radius.pill },
-  buttonSm: { minHeight: 40, paddingHorizontal: sp[4] },
+  buttonSm: { minHeight: 48, paddingHorizontal: sp[4] },
   input: { minHeight: 52, paddingHorizontal: sp[4], paddingVertical: 13, borderRadius: radius.md, borderWidth: 1.5, fontSize: 16 },
   label: { fontSize: 13.5, fontWeight: "600" },
   help: { fontSize: 13, lineHeight: 19 },
   iconBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22 },
-  chip: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40, paddingHorizontal: 16, borderRadius: radius.pill },
+  chip: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 48, paddingHorizontal: 16, borderRadius: radius.pill },
   menuRow: { flexDirection: "row", alignItems: "center", gap: sp[3], paddingLeft: sp[4], minHeight: 68 },
   menuBody: { flex: 1, flexDirection: "row", alignItems: "center", gap: sp[3], paddingVertical: sp[3], paddingRight: sp[4], minHeight: 68 },
   menuIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
@@ -484,7 +494,7 @@ const styles = StyleSheet.create({
   // A tile is a card in its own right, so it carries the card's shape.
   menuTile: { flex: 1, minWidth: 190, padding: sp[4], borderRadius: radius.lg, borderWidth: 1 },
   emojiRow: { flexDirection: "row", justifyContent: "space-between" },
-  emoji: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  emoji: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   tallyRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: sp[2] },
   tally: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4, flexShrink: 1 },
   tallyFace: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
