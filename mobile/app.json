@@ -95,6 +95,16 @@
           "imageWidth": 180,
           "resizeMode": "contain",
           "backgroundColor": "#121c2d",
+          "android": {
+            "image": "./assets/android-icon-foreground.png",
+            "imageWidth": 156,
+            "resizeMode": "contain",
+            "backgroundColor": "#121c2d",
+            "dark": {
+              "image": "./assets/android-icon-foreground.png",
+              "backgroundColor": "#121c2d"
+            }
+          },
           "dark": {
             "image": "./assets/splash-icon.png",
             "backgroundColor": "#121c2d"
