@@ -21,4 +21,3 @@ service-account*.json
 # Only the generated top-level folders: local modules keep their native code.
 /ios/
 /android/
-google-services.json
