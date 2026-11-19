@@ -5,6 +5,8 @@ import { auth } from "@/api";
 import { Button, Field, Input } from "@/ui";
 import { AuthFrame } from "@/ui/AuthFrame";
 import { sp, useTheme } from "@/ui/theme";
+import { errorMessage } from "@/api/errors";
+import { ApiError } from "@/api/client";
 
 export default function ForgotPassword() {
   const t = useTheme();
@@ -22,7 +24,8 @@ export default function ForgotPassword() {
       await auth.requestPasswordReset(address);
       setSent(true);
     } catch (e: any) {
-      setError(e?.fields?.email?.[0] || e?.message || "Couldn't request a reset link. Please try again.");
+      // A 503 here is the server's own sentence that email reset isn't set up yet.
+      setError(e?.fields?.email?.[0] || (e instanceof ApiError && e.status === 503 && e.message ? e.message : errorMessage(e)));
     } finally {
       sending.current = false;
       setBusy(false);

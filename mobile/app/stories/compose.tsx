@@ -25,6 +25,7 @@ import { alpha, radius, sp, useTheme } from "@/ui/theme";
 import { keepDraftMedia, removeDraftMedia } from "@/storage/media";
 import { usePrivateState } from "@/storage/private";
 import { fail, success, tap, tick } from "@/ui/haptics";
+import { errorMessage } from "@/api/errors";
 
 const MAX_SECONDS = 60;
 type Picked = ImagePicker.ImagePickerAsset;
@@ -105,7 +106,7 @@ export default function ComposeStory() {
       // A different picture is a different story, and may be posted.
       posted.current = false;
     } catch (e: any) {
-      setError(e?.message || "That couldn't be opened.");
+      setError(errorMessage(e));
     }
   };
 
@@ -164,7 +165,7 @@ export default function ComposeStory() {
       goBack();
     } catch (e: any) {
       fail();
-      setError(e?.message || "That couldn't be shared.");
+      setError(errorMessage(e));
     } finally {
       posting.current = false;
       setBusy(false);

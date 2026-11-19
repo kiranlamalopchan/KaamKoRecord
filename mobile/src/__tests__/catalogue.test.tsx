@@ -9,7 +9,7 @@ jest.mock("@/api/client", () => ({ api: jest.fn(), formWith: jest.fn() }));
 function response(id: number, title: string): CatalogueSearch {
   return {
     count: 1, next: null, page: 1, pages: 1, total: 1, samples: [],
-    results: [{ id, catalogue_id: id, title, description: "", code: "001", fields: {} }],
+    results: [{ id, catalogue_id: id, title, description: "", code: "001", fields: {}, stock: 0 }],
     catalogue: null, catalogues: [],
   };
 }

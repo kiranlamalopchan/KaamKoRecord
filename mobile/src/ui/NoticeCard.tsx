@@ -24,6 +24,7 @@ import { ReportSheet, type ReportTarget } from "./ReportSheet";
 import { radius, sp, useTheme } from "./theme";
 import { success, tap, tick } from "./haptics";
 import { VisibilityBadge, VisibilityToggle } from "./VisibilityPicker";
+import { errorMessage } from "@/api/errors";
 
 const LABELS: Record<string, string> = { "👍": "Like", "❤️": "Love", "🥰": "Care", "😂": "Haha", "😮": "Wow", "😢": "Sad", "😡": "Angry" };
 const labelFor = (emoji: string) => LABELS[emoji] || "Reacted";
@@ -80,7 +81,7 @@ function NoticeCardInner({ notice: given, full = false }: { notice: Notice; full
       success();
       changed(notice.id);
     } catch (e: any) {
-      notify(next ? "Couldn't pin it" : "Couldn't unpin it", e?.message || "");
+      notify(next ? "Couldn't pin it" : "Couldn't unpin it", errorMessage(e));
     }
   };
   // Somebody else's: flag it, or stop hearing from them altogether.

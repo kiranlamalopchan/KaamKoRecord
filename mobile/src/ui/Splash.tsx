@@ -1,31 +1,31 @@
 /**
- * The way in: the mark drops in from above and bounces to rest — three
- * bounces, each lower than the last, squashing on the floor and stretching
- * in the air, over a shadow that widens as it comes down. The name pops up
- * underneath once it has settled. Waiting on the keychain or the server,
- * the mark keeps a gentle bob so a wait never looks like a freeze; then the
- * whole thing lifts away and the app is already there.
+ * The way in. It starts exactly where the phone's own splash leaves off —
+ * the same clock, the same size, dead centre on the same navy — so the hand
+ * over is invisible. Then the hand sweeps one full turn back to its rest,
+ * soft mint rings pulse out from the dial, the clock glides up and the name
+ * rises in letter by letter, with the tagline after it and "Powered by
+ * PeakSuperTech" at the foot; a tap anywhere skips ahead. After about four
+ * seconds the clock zooms up at the eye until it fills the screen and the
+ * navy clears over the app — five seconds in all (longer only if the keychain
+ * or the server is slower still, while the hand keeps turning).
  *
- * The native splash is a still of this same mark on this same navy, held up
- * until this layer has painted its first frame — so the two meet without a
- * white flash between them. It stays until the animation has run *and* the
- * keychain has answered, whichever is slower: a quick phone still sees all of
- * it, a slow one never sits through it twice.
- *
- * Every style here is computed on the UI thread from shared values and
- * arithmetic only — no helper is called from inside a worklet (see the
- * note on `near` in Onboarding.tsx for why the web build can't catch that).
- * The navy stays flat: the mark keeps its own two-stop gradient, the surface
- * behind it does not get one.
+ * Smoothness: every movement is a Reanimated timing or spring running on the
+ * UI thread, so the app mounting underneath (busy JS) can't stutter it. The
+ * styles are arithmetic on shared values only — no helper is called inside
+ * a worklet. Nothing re-renders while it moves: the SVGs are drawn once and
+ * only their views are transformed, and the native still is let go only
+ * after this layer has painted its first frame — no white flash, no jump.
  */
 import React, { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   cancelAnimation,
   Easing,
   Extrapolation,
   interpolate,
   runOnJS,
+  type SharedValue,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -35,18 +35,29 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import Svg, { Circle, Defs, LinearGradient, Mask, Path, Rect, Stop } from "react-native-svg";
+import Svg, { Circle, Defs, LinearGradient, Path, Stop } from "react-native-svg";
 
 import { nativeOrNull } from "@/ui/native";
 
-const SIZE = 150;
-const C = SIZE / 2;
+// The drawing, in its own 150-unit box (the same mark as the icon).
+const BOX = 150;
+const C = BOX / 2;
 const R = 46;
 const RING_W = 7;
 const PIN = 5.5;
 const HAND_LEN = 26;
 const HAND_W = 5;
 const REST = 32.5;
+const RING_OUTER = 2 * R + RING_W; // 99 units across the dial
+
+// On screen. The phone's still draws the dial this wide (splash-icon.png:
+// 234 of its 400 px, shown 180 pt wide on iOS; the Android foreground: 593
+// of 1024 px at 156 dp), so the animation starts at exactly that size and
+// settles at ours.
+const DIAL = 112;
+const NATIVE_DIAL = Platform.OS === "android" ? 90 : 105;
+const SIZE = (BOX * DIAL) / RING_OUTER;
+const LIFT = 46;
 
 const NAVY = "#121c2d";
 const MINT = "#40e7a0";
@@ -56,177 +67,240 @@ const MUTED = "#8a97ad";
 
 const NAME = "KaamKoRecord";
 const TAGLINE = "Clock in. Add it up.";
+const BRAND = "Powered by PeakSuperTech";
 
-// The drop: from this far above the floor, then three bounces, each about
-// 40% of the last, each half the time in the air.
-const DROP = 260;
-const BOUNCES = [
-  { up: 105, ms: 300 },
-  { up: 42, ms: 200 },
-  { up: 14, ms: 125 },
-];
-const FALL_MS = 520;
-const SETTLED_AT = FALL_MS + BOUNCES.reduce((sum, b) => sum + 2 * b.ms, 0); // 1770
-const INTRO_MS = SETTLED_AT + 650;
+// The timeline, in ms from the first frame: about five seconds in all —
+// the intro over four, then the zoom into the app. If the keychain or the
+// server is slower still, the hand keeps turning and the rings breathe.
+const SWEEP_MS = 1800;
+const TURN_MS = 9000;    // one slow turn of the hand, only while waiting
+const LIFT_AT = 1250;
+const LIFT_MS = 1000;
+const NAME_AT = 1600;
+const NAME_MS = 1200;
+const TAG_AT = 2550;
+const BRAND_AT = 2900;
+const INTRO_MS = 4100;
+const RIPPLE_MS = 2000;
+const EXIT_MS = 900;
+const START_CAP_MS = 2500;
 
-// The four gaps in the dial, at twelve, three, six and nine.
-const GAPS = [
-  { x: C - 2.2, y: C - R - 6, width: 4.4, height: 19 },
-  { x: C + R - 13, y: C - 2.2, width: 19, height: 4.4 },
-  { x: C - 2.2, y: C + R - 13, width: 4.4, height: 19 },
-  { x: C - R - 6, y: C - 2.2, width: 19, height: 4.4 },
-];
+// The dial is four arcs with a gap at twelve, three, six and nine. Drawn as
+// arcs rather than a ring under a mask: Android scaled the mask wrongly
+// inside a viewBox and cut the ring flat on all four sides.
+const GAP = (Math.asin(2.2 / R) * 180) / Math.PI;
+const ARCS = [0, 90, 180, 270].map((at) => {
+  const a = ((at - 90 + GAP) * Math.PI) / 180, b = ((at - GAP) * Math.PI) / 180;
+  const [x1, y1, x2, y2] = [C + R * Math.cos(a), C + R * Math.sin(a), C + R * Math.cos(b), C + R * Math.sin(b)];
+  return `M${x1.toFixed(2)} ${y1.toFixed(2)}A${R} ${R} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+});
 
-const fallIn = Easing.in(Easing.quad);
-const riseOut = Easing.out(Easing.quad);
+const glide = Easing.bezier(0.22, 1, 0.36, 1);      // fast start, long soft landing
+const sweepEase = Easing.bezier(0.65, 0, 0.25, 1);  // wind up, sweep, ease to rest
 
 export function Splash({ ready, onDone }: { ready: boolean; onDone: () => void }) {
   const calm = useReducedMotion();
-  const y = useSharedValue(calm ? 0 : -DROP); // the mark's height above the floor (negative = up)
-  const squash = useSharedValue(0);           // 1 at the moment of impact
-  const word = useSharedValue(0);             // the name and tagline
-  const out = useSharedValue(0);              // the lift-away
+  const sweep = useSharedValue(0);  // the hand's extra turn, 0 → 1
+  const lift = useSharedValue(0);   // the clock gliding up to make room
+  const grow = useSharedValue(0);   // from the still's size to ours
+  const name = useSharedValue(0);   // the letters, 0 → 1 across the word
+  const tag = useSharedValue(0);
+  const brand = useSharedValue(0); // the line at the bottom
+  const ripple = useSharedValue(0); // loops 0 → 1 while we are here
+  const ripple2 = useSharedValue(0); // the same, half a beat behind
+  const out = useSharedValue(0);    // the exit
   const [shown, setShown] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const insets = useSafeAreaInsets();
+  const [go, setGo] = useState(false);
+
+  // Don't move while the app is being built underneath. Signing in decides
+  // which screens mount, and mounting them (Home, the tabs, their first
+  // data) takes the same frames the animation needs — that was the hitch at
+  // the start. So: wait for `ready`, let that mount finish, give it two more
+  // frames, and only then start. The phone's still stays up all that time and
+  // looks exactly like our first frame, so the wait doesn't show. A slow
+  // phone still starts after START_CAP_MS rather than holding the still.
+  useEffect(() => {
+    if (go) return;
+    let raf = 0, cancelled = false;
+    const start = () => { if (!cancelled) raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => setGo(true)); }); };
+    const cap = setTimeout(() => setGo(true), START_CAP_MS);
+    // The first moment the JS thread is idle after `ready` — the mount done.
+    const idle = ready ? requestIdleCallback(start, { timeout: 1200 }) : null;
+    return () => { cancelled = true; cancelAnimationFrame(raf); clearTimeout(cap); if (idle !== null) cancelIdleCallback(idle); };
+  }, [ready, go]);
 
   useEffect(() => {
-    // Let the still go once there is something of ours on the screen.
-    const frame = requestAnimationFrame(() => {
+    if (!go) return;
+    let started = false;
+    // Let the still go now that ours is on screen and the app below is
+    // built, and start moving on the frame after.
+    const first = requestAnimationFrame(() => {
       nativeOrNull(() => require("expo-splash-screen"))?.hideAsync?.()?.catch?.(() => {});
-    });
-    if (calm) {
-      // Reduced motion: everything simply appears, and leaves by fading.
-      word.value = 1;
-    } else {
-      // The fall and the bounces, one after another.
-      y.value = withSequence(
-        withTiming(0, { duration: FALL_MS, easing: fallIn }),
-        ...BOUNCES.flatMap((b) => [
-          withTiming(-b.up, { duration: b.ms, easing: riseOut }),
-          withTiming(0, { duration: b.ms, easing: fallIn }),
-        ]),
+      started = true;
+      if (calm) {
+        grow.value = 1; lift.value = 1;
+        name.value = withTiming(1, { duration: 400 });
+        tag.value = withTiming(1, { duration: 400 });
+        brand.value = withTiming(1, { duration: 400 });
+        return;
+      }
+      grow.value = withSpring(1, { damping: 16, stiffness: 120, mass: 0.9 });
+      // One sweep to rest, then on round steadily; each later turn ends where
+      // the next begins (a whole turn), so the repeat never shows a seam.
+      sweep.value = withSequence(
+        withTiming(1, { duration: SWEEP_MS, easing: sweepEase }),
+        withRepeat(withTiming(2, { duration: TURN_MS, easing: Easing.linear }), -1, false),
       );
-      // A squash on each landing, hardest first, timed to the impacts above.
-      let at = FALL_MS;
-      const hits: number[] = [at];
-      for (const b of BOUNCES) { at += 2 * b.ms; hits.push(at); }
-      const strengths = [1, 0.6, 0.35, 0.18];
-      let cursor = 0;
-      const steps = hits.flatMap((hit, i) => {
-        const inMs = 60, outMs = 200;
-        const wait = Math.max(hit - 30 - cursor, 0);
-        cursor = hit - 30 + inMs + outMs;
-        return [
-          withDelay(wait, withTiming(strengths[i], { duration: inMs, easing: Easing.out(Easing.quad) })),
-          withTiming(0, { duration: outMs, easing: Easing.out(Easing.back(1.6)) }),
-        ];
-      });
-      squash.value = withSequence(...steps);
-      word.value = withDelay(SETTLED_AT - 80, withSpring(1, { damping: 12, stiffness: 170, mass: 0.7 }));
-    }
+      const pulse = () => withRepeat(withTiming(1, { duration: RIPPLE_MS, easing: Easing.out(Easing.cubic) }), -1, false);
+      ripple.value = withDelay(120, pulse());
+      ripple2.value = withDelay(120 + RIPPLE_MS / 2, pulse());
+      lift.value = withDelay(LIFT_AT, withTiming(1, { duration: LIFT_MS, easing: glide }));
+      name.value = withDelay(NAME_AT, withTiming(1, { duration: NAME_MS, easing: Easing.linear }));
+      tag.value = withDelay(TAG_AT, withTiming(1, { duration: 800, easing: glide }));
+      brand.value = withDelay(BRAND_AT, withTiming(1, { duration: 900, easing: glide }));
+    });
     const held = setTimeout(() => setShown(true), calm ? 500 : INTRO_MS);
-    return () => { cancelAnimationFrame(frame); clearTimeout(held); };
-  }, [calm]);
-
-  // Still here after the intro, waiting on the keychain or the server: a
-  // small bob, over and over, until we go.
-  useEffect(() => {
-    if (!shown || ready || calm) return;
-    y.value = withRepeat(
-      withSequence(withTiming(-12, { duration: 380, easing: riseOut }), withTiming(0, { duration: 380, easing: fallIn })),
-      -1,
-      false,
-    );
-    return () => cancelAnimation(y);
-  }, [shown, ready, calm]);
+    return () => {
+      cancelAnimationFrame(first); clearTimeout(held);
+      if (started) [sweep, lift, grow, name, tag, brand, ripple, ripple2].forEach((v) => cancelAnimation(v));
+    };
+  }, [calm, go]);
 
   useEffect(() => {
     if (!shown || !ready) return;
-    cancelAnimation(y);
-    y.value = withTiming(0, { duration: 160, easing: fallIn });
-    out.value = withTiming(1, { duration: calm ? 300 : 460, easing: Easing.inOut(Easing.cubic) }, (finished) => {
+    nativeOrNull(() => require("expo-splash-screen"))?.hideAsync?.()?.catch?.(() => {});
+    setLeaving(true);
+    // The zoom: the clock flies up at the eye until it fills the screen,
+    // and the app shows through as the navy clears.
+    out.value = withTiming(1, { duration: calm ? 300 : EXIT_MS, easing: Easing.bezier(0.55, 0, 0.35, 1) }, (finished) => {
       if (finished) runOnJS(onDone)();
     });
   }, [shown, ready]);
 
-  // The mark: up and down with `y`; flattened on impact, drawn out a little
-  // while it is high in the air.
-  const mark = useAnimatedStyle(() => {
-    const air = interpolate(-y.value, [0, DROP], [0, 1], Extrapolation.CLAMP);
-    const sx = 1 + 0.32 * squash.value - 0.05 * air;
-    const sy = 1 - 0.28 * squash.value + 0.07 * air;
-    return { transform: [{ translateY: y.value }, { scaleX: sx * (1 + out.value * 0.1) }, { scaleY: sy * (1 + out.value * 0.1) }] };
-  });
-  // The shadow: wide and dark when the mark is on the floor, a faint far
-  // speck when it is high.
-  const shadow = useAnimatedStyle(() => {
-    const air = interpolate(-y.value, [0, DROP], [0, 1], Extrapolation.CLAMP);
-    return {
-      opacity: (0.38 - 0.3 * air) * (1 - out.value),
-      transform: [{ scaleX: 0.55 + 0.45 * (1 - air) + 0.25 * squash.value }, { scaleY: 0.8 + 0.2 * (1 - air) }],
-    };
-  });
-  const words = useAnimatedStyle(() => ({
-    opacity: interpolate(word.value, [0, 0.6], [0, 1], Extrapolation.CLAMP),
-    transform: [{ translateY: (1 - word.value) * 22 - out.value * 16 }, { scale: 0.85 + 0.15 * word.value }],
+  const start = NATIVE_DIAL / DIAL;
+  const mark = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: -LIFT * lift.value },
+      { scale: (start + (1 - start) * grow.value) * (calm ? 1 : 1 + 13 * out.value * out.value) },
+    ],
+    opacity: interpolate(out.value, [0.55, 1], [1, 0], Extrapolation.CLAMP),
   }));
-  const tag = useAnimatedStyle(() => ({ opacity: interpolate(word.value, [0.5, 1], [0, 1], Extrapolation.CLAMP) }));
-  const layer = useAnimatedStyle(() => ({ opacity: 1 - out.value }));
+  const hand = useAnimatedStyle(() => ({ transform: [{ rotate: `${360 * sweep.value}deg` }] }));
+  const words = useAnimatedStyle(() => ({
+    opacity: interpolate(out.value, [0, 0.3], [1, 0], Extrapolation.CLAMP),
+    transform: [{ translateY: 30 * out.value }, { scale: 1 + 0.15 * out.value }],
+  }));
+  const footer = useAnimatedStyle(() => ({
+    opacity: brand.value * interpolate(out.value, [0, 0.25], [1, 0], Extrapolation.CLAMP),
+    transform: [{ translateY: 10 * (1 - brand.value) }],
+  }));
+  const tagline = useAnimatedStyle(() => ({
+    opacity: tag.value,
+    transform: [{ translateY: 8 * (1 - tag.value) }],
+  }));
+  // The navy holds while the zoom starts, then clears over the app.
+  const layer = useAnimatedStyle(() => ({ opacity: interpolate(out.value, [0.4, 1], [1, 0], Extrapolation.CLAMP) }));
 
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, styles.stage, layer]} testID="splash">
-      <View style={styles.well}>
-        <Animated.View style={[styles.shadow, shadow]} pointerEvents="none" />
-        <Animated.View style={[styles.mark, mark]}>
-          <Mark />
+    <Animated.View style={[StyleSheet.absoluteFill, styles.stage, layer]} testID="splash" pointerEvents={leaving ? "none" : "auto"}>
+      {/* A tap goes straight in: nobody has to sit through the whole thirty seconds. */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => setShown(true)} accessibilityRole="button" accessibilityLabel="Skip" testID="splash-skip" />
+      <Animated.View style={[styles.center, mark]}>
+        <Ripple progress={ripple} />
+        <Ripple progress={ripple2} />
+        <View style={styles.glow} />
+        <View style={styles.layer}>
+          <Dial />
+        </View>
+        <Animated.View style={[styles.layer, hand]}>
+          <Hand />
         </Animated.View>
-      </View>
+      </Animated.View>
 
       <Animated.View style={[styles.words, words]}>
-        <Animated.Text style={styles.name}>{NAME}</Animated.Text>
-        <Animated.Text style={[styles.tagline, tag]}>{TAGLINE}</Animated.Text>
+        <View style={styles.nameRow} accessible accessibilityLabel={NAME}>
+          {NAME.split("").map((ch, i) => <Letter key={i} ch={ch} index={i} progress={name} />)}
+        </View>
+        <Animated.Text style={[styles.tagline, tagline]}>{TAGLINE}</Animated.Text>
+      </Animated.View>
+
+      <Animated.View style={[styles.footer, { bottom: insets.bottom + 24 }, footer]} pointerEvents="none">
+        <Text style={styles.powered} accessibilityLabel={BRAND}>Powered by <Text style={styles.brand}>PeakSuperTech</Text></Text>
       </Animated.View>
     </Animated.View>
   );
 }
 
-/** The dial, the hand and the pin, drawn — the same mark as the icon. */
-function Mark() {
-  const hx = C + Math.cos((REST * Math.PI) / 180) * HAND_LEN;
-  const hy = C + Math.sin((REST * Math.PI) / 180) * HAND_LEN;
+/** One letter of the name: rises and sharpens in its own slice of the word's time. */
+function Letter({ ch, index, progress }: { ch: string; index: number; progress: SharedValue<number> }) {
+  const from = (index / NAME.length) * 0.55;
+  const style = useAnimatedStyle(() => {
+    const p = interpolate(progress.value, [from, from + 0.45], [0, 1], Extrapolation.CLAMP);
+    // ease-out cubic, by hand (no helper calls inside a worklet)
+    const e = 1 - (1 - p) * (1 - p) * (1 - p);
+    return { opacity: e, transform: [{ translateY: 16 * (1 - e) }, { scale: 0.92 + 0.08 * e }] };
+  });
+  return <Animated.Text style={[styles.name, style]}>{ch}</Animated.Text>;
+}
+
+/** A soft mint ring that widens out of the dial and fades; two, half a beat apart. */
+function Ripple({ progress }: { progress: SharedValue<number> }) {
+  const style = useAnimatedStyle(() => {
+    const p = progress.value;
+    // Fades in over the first sixth so it never pops, out over the rest.
+    return { opacity: 0.45 * (1 - p) * Math.min(1, p * 6), transform: [{ scale: 1 + 0.9 * p }] };
+  });
+  return <Animated.View style={[styles.ripple, style]} pointerEvents="none" />;
+}
+
+/** The dial — still. */
+function Dial() {
   return (
-    <Svg width={SIZE} height={SIZE}>
+    <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${BOX} ${BOX}`}>
       <Defs>
-        <LinearGradient id="splash-mark" x1="0" y1="0" x2="1" y2="1">
+        <LinearGradient id="splash-mark" x1="0" y1="0" x2={BOX} y2={BOX} gradientUnits="userSpaceOnUse">
           <Stop offset="0" stopColor={MINT} />
           <Stop offset="1" stopColor={MINT_DEEP} />
         </LinearGradient>
-        <Mask id="splash-ticks">
-          <Rect width={SIZE} height={SIZE} fill="#fff" />
-          {GAPS.map((g, i) => <Rect key={i} {...g} fill="#000" />)}
-        </Mask>
       </Defs>
-      <Circle cx={C} cy={C} r={R} fill="none" stroke="url(#splash-mark)" strokeWidth={RING_W} mask="url(#splash-ticks)" />
-      <Path d={`M${C} ${C}L${hx} ${hy}`} stroke="url(#splash-mark)" strokeWidth={HAND_W} strokeLinecap="round" />
-      <Circle cx={C} cy={C} r={PIN} fill="url(#splash-mark)" />
+      {ARCS.map((d, i) => <Path key={i} d={d} fill="none" stroke="url(#splash-mark)" strokeWidth={RING_W} />)}
+    </Svg>
+  );
+}
+
+/** The hand at its resting angle; the layer around it turns. */
+function Hand() {
+  const hx = C + Math.cos((REST * Math.PI) / 180) * HAND_LEN;
+  const hy = C + Math.sin((REST * Math.PI) / 180) * HAND_LEN;
+  return (
+    <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${BOX} ${BOX}`}>
+      <Defs>
+        <LinearGradient id="splash-hand" x1="0" y1="0" x2="1" y2="1">
+          <Stop offset="0" stopColor={MINT} />
+          <Stop offset="1" stopColor={MINT_DEEP} />
+        </LinearGradient>
+      </Defs>
+      <Path d={`M${C} ${C}L${hx} ${hy}`} stroke="url(#splash-hand)" strokeWidth={HAND_W} strokeLinecap="round" />
+      <Circle cx={C} cy={C} r={PIN} fill="url(#splash-hand)" />
     </Svg>
   );
 }
 
 const styles = StyleSheet.create({
   stage: { backgroundColor: NAVY, alignItems: "center", justifyContent: "center", zIndex: 10 },
-  // Room for the drop above and the shadow below, so nothing is clipped.
-  well: { width: SIZE + 40, height: SIZE + 40, alignItems: "center", justifyContent: "flex-end" },
-  mark: { width: SIZE, height: SIZE, marginBottom: 14 },
-  shadow: {
-    position: "absolute",
-    bottom: 0,
-    width: SIZE * 0.78,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: "#000",
-  },
-  words: { alignItems: "center", marginTop: 26 },
-  name: { color: INK, fontSize: 27, fontWeight: "800", letterSpacing: -0.4 },
-  tagline: { color: MUTED, fontSize: 14, fontWeight: "600", letterSpacing: 0.2, marginTop: 8 },
+  // The clock sits dead centre, where the phone's still drew it.
+  center: { width: SIZE, height: SIZE, alignItems: "center", justifyContent: "center" },
+  layer: { position: "absolute", width: SIZE, height: SIZE },
+  ripple: { position: "absolute", width: DIAL, height: DIAL, borderRadius: DIAL / 2, borderWidth: 2, borderColor: MINT },
+  glow: { position: "absolute", width: DIAL * 0.8, height: DIAL * 0.8, borderRadius: DIAL, backgroundColor: "rgba(64,231,160,0.07)" },
+  // Below the centre, so the clock alone decides where the middle is.
+  words: { position: "absolute", top: "50%", marginTop: DIAL / 2 - LIFT + 30, alignItems: "center" },
+  nameRow: { flexDirection: "row" },
+  name: { color: INK, fontSize: 30, fontWeight: "800", letterSpacing: -0.4 },
+  footer: { position: "absolute", left: 0, right: 0, alignItems: "center" },
+  powered: { color: MUTED, fontSize: 13, fontWeight: "500", letterSpacing: 0.4 },
+  brand: { color: INK, fontWeight: "700" },
+  tagline: { color: MUTED, fontSize: 14.5, fontWeight: "600", letterSpacing: 0.3, marginTop: 10 },
 });
-

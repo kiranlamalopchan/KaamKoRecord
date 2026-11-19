@@ -84,6 +84,8 @@ def workplace_full(w):
         "public_holiday_multiplier": float(w.public_holiday_multiplier),
         "overtime_after_hours": float(w.overtime_after_hours) if w.overtime_after_hours is not None else None,
         "overtime_multiplier": float(w.overtime_multiplier),
+        "double_time_after_hours": float(w.double_time_after_hours) if w.double_time_after_hours is not None else None,
+        "double_time_multiplier": float(w.double_time_multiplier),
         "tax_rate": float(w.tax_rate) if w.tax_rate is not None else None,
         "tax_scale": w.tax_scale,
         "study_loan": w.study_loan,
@@ -290,6 +292,9 @@ def clock_state(user, selected_id=None):
         "target_hours": site.SHIFT_TARGET_HOURS,
         "long_shift": bool(shift and shift.total_duration > timedelta(hours=site.SHIFT_TARGET_HOURS)),
         "limit": limit_card(site._limit_for(user, selected)),
+        # Every workplace's hours since the account's own week began, up to
+        # server_now; a running shift keeps adding to it on the watch.
+        "week": {"worked": duration(site.hours_this_week(user))},
         # A cash job with no cap: the hours owed for, in the cap's place.
         "tally": cash_tally(selected),
     }

@@ -10,6 +10,7 @@ import { VisibilityPicker } from "@/ui/VisibilityPicker";
 import { sp, useTheme } from "@/ui/theme";
 import { usePrivateState } from "@/storage/private";
 import { fail, success } from "@/ui/haptics";
+import { errorMessage } from "@/api/errors";
 
 const MAX = 600;
 
@@ -42,7 +43,7 @@ export default function Compose() {
       goBack();
     } catch (e: any) {
       fail();
-      setError(e?.message || "That couldn't be posted.");
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }

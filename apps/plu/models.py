@@ -12,6 +12,8 @@ class Catalogue(models.Model):
     description_column = models.CharField(max_length=100, blank=True)
     code_column = models.CharField(max_length=100, blank=True)
     search_columns = models.JSONField(default=list)
+    # Count how many of each item there are; scans can add or take one away.
+    track_stock = models.BooleanField(default=False)
 
     class Meta:
         constraints = [models.UniqueConstraint(Lower("name"), "owner", name="private_catalogue_name")]
@@ -29,6 +31,7 @@ class PluItem(models.Model):
     code = models.CharField(max_length=100, blank=True)
     fields = models.JSONField(default=dict)
     search_text = models.TextField(blank=True)
+    stock = models.IntegerField(default=0)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["catalogue", "plu_no"], name="private_plu_number")]

@@ -1,6 +1,7 @@
 import React from "react";
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import FestivalSettingsPage from "../../app/profile/festival";
+import { ApiError } from "@/api/client";
 
 const mockSave = jest.fn(), mockQuery = jest.fn(), mockSet = jest.fn(), mockInvalidate = jest.fn();
 let mockAllowed = true;
@@ -60,12 +61,12 @@ test("selection and custom text preview locally until an explicit save", async (
 });
 
 test("save failures preserve edits and never report success", async () => {
-  mockSave.mockRejectedValueOnce(new Error("Permission denied."));
+  mockSave.mockRejectedValueOnce(new ApiError(403, "Permission denied."));
   const screen = await render(<FestivalSettingsPage />);
   await fireEvent.press(screen.getByLabelText("Tihar"));
   await fireEvent.changeText(screen.getByLabelText("Greeting"), "My greeting");
   await fireEvent.press(screen.getByLabelText("Save banner"));
-  await waitFor(() => expect(screen.getByText("Permission denied.")).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("You don't have access to that.")).toBeTruthy());
   expect(screen.getByLabelText("Greeting")).toHaveProp("value", "My greeting");
   expect(screen.queryByText("Festival banner saved.")).toBeNull();
   expect(mockInvalidate).not.toHaveBeenCalled();

@@ -23,6 +23,7 @@ import { ReportSheet, type ReportTarget } from "@/ui/ReportSheet";
 import { VisibilityBadge } from "@/ui/VisibilityPicker";
 import { goBack } from "@/nav/paths";
 import { sp } from "@/ui/theme";
+import { errorMessage } from "@/api/errors";
 
 const PHOTO_SECONDS = 5;
 
@@ -176,7 +177,7 @@ export default function Viewer() {
       setTally((prev) => ({ ...prev, [story.id]: left }));
     } catch (e: any) {
       // Said out loud: the face not moving reads as the tap having missed.
-      notify("That didn't go through", e?.message || "");
+      notify("That didn't go through", errorMessage(e));
     }
   };
 
@@ -185,7 +186,7 @@ export default function Viewer() {
       try {
         await api.remove(story!.id);
       } catch (e: any) {
-        notify("Couldn't take it down", e?.message || "");
+        notify("Couldn't take it down", errorMessage(e));
         return;
       }
       if (list.length <= 1) close();

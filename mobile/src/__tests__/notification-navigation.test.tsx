@@ -14,6 +14,7 @@ const mockNotifications = {
   getLastNotificationResponseAsync: jest.fn(),
   clearLastNotificationResponseAsync: jest.fn(async () => {}),
   addNotificationResponseReceivedListener: jest.fn(),
+  addNotificationReceivedListener: jest.fn(),
 };
 const mockBadge = jest.fn(async (_count: number) => {});
 const mockNotify = jest.fn();
@@ -29,6 +30,7 @@ function response(id = "push-1", url: unknown = "/notifications/123/go/"): Notif
 }
 
 let listener: (response: NotificationResponse) => void;
+let arrived: () => void;
 let remove: jest.Mock;
 beforeEach(() => {
   jest.clearAllMocks();
@@ -36,10 +38,12 @@ beforeEach(() => {
   mockNotifications.getLastNotificationResponseAsync.mockResolvedValue(null);
   remove = jest.fn();
   mockNotifications.addNotificationResponseReceivedListener.mockImplementation((fn) => { listener = fn; return { remove }; });
+  mockNotifications.addNotificationReceivedListener.mockImplementation((fn) => { arrived = fn; return { remove }; });
 });
 
+let client: QueryClient;
 function setup(ready = true, username: string | undefined = "alice") {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   return renderHook(({ ready, username }: { ready: boolean; username: string | undefined }) => useNotificationNavigation(ready, username), { initialProps: { ready, username }, wrapper });
 }
@@ -158,4 +162,13 @@ test("an old lock-screen button cannot clock out a different shift", async () =>
   expect(api).toHaveBeenCalledTimes(1);
   expect(api).toHaveBeenCalledWith("timesheet/clock/", { query: { workplace: undefined } });
   await hook.unmount();
+});
+
+test("one arriving while the app is open moves the counts on screen at once", async () => {
+  setup();
+  await waitFor(() => expect(mockNotifications.addNotificationReceivedListener).toHaveBeenCalled());
+  const invalidate = jest.spyOn(client, "invalidateQueries");
+  act(() => arrived());
+  for (const key of ["unread", "chat-unread"]) expect(invalidate).toHaveBeenCalledWith({ queryKey: [key] });
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["chat", "inbox"] });
 });

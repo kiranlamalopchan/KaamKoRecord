@@ -98,7 +98,15 @@ def profile(request):
 @login_required
 def profile_settings(request):
     """Device preferences, privacy and account tools, separate from the portrait."""
-    return render(request, "accounts/settings.html", {"section_title": "Settings"})
+    from apps.moderation.models import Report
+    from apps.moderation.roles import is_moderator
+    moderator = is_moderator(request.user)
+    open_reports = (
+        Report.objects.filter(handled_at__isnull=True).values("kind", "target_id").distinct().count() if moderator else 0
+    )
+    return render(request, "accounts/settings.html", {
+        "section_title": "Settings", "is_moderator": moderator, "open_reports": open_reports,
+    })
 
 
 @login_required

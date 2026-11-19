@@ -2863,10 +2863,13 @@ class ReminderTests(MiddayClock, TestCase):
         self.job.hours_limit = 8
         self.job.save()
         self._worked(9)
-        Shift.objects.create(
+        long_shift = Shift.objects.create(
             user=self.user, workplace=self.job,
             clock_in=timezone.now() - timedelta(hours=12),
         )
+        # A recent break, so only the forgotten clock-out speaks (no break nudge).
+        Break.objects.create(shift=long_shift, break_start=timezone.now() - timedelta(hours=1, minutes=30),
+                             break_end=timezone.now() - timedelta(hours=1))
 
         out = StringIO()
         call_command("timesheet_reminders", stdout=out)
@@ -2889,10 +2892,13 @@ class ReminderSweepTests(TestCase):
     def test_a_page_load_runs_the_reminders(self):
         from apps.notifications.models import Notification
 
-        Shift.objects.create(
+        long_shift = Shift.objects.create(
             user=self.user, workplace=self.job,
             clock_in=timezone.now() - timedelta(hours=12),
         )
+        # A recent break, so only the forgotten clock-out speaks (no break nudge).
+        Break.objects.create(shift=long_shift, break_start=timezone.now() - timedelta(hours=1, minutes=30),
+                             break_end=timezone.now() - timedelta(hours=1))
 
         self.client.get(reverse("home"))
 
@@ -2901,10 +2907,13 @@ class ReminderSweepTests(TestCase):
     def test_the_next_page_load_does_not_run_them_again(self):
         from apps.notifications.models import Notification, Sweep
 
-        Shift.objects.create(
+        long_shift = Shift.objects.create(
             user=self.user, workplace=self.job,
             clock_in=timezone.now() - timedelta(hours=12),
         )
+        # A recent break, so only the forgotten clock-out speaks (no break nudge).
+        Break.objects.create(shift=long_shift, break_start=timezone.now() - timedelta(hours=1, minutes=30),
+                             break_end=timezone.now() - timedelta(hours=1))
 
         for _ in range(5):
             self.client.get(reverse("home"))
@@ -3219,3 +3228,113 @@ class TrendChartTests(TestCase):
         self.assertIn('class="pay-chip"', html)
         self.assertIn("--wp-hue:", html)
         self.assertNotIn("data-trend=", html)
+
+
+class WristReminderTests(MiddayClock, TestCase):
+    """The break nudge and the limit heads-up, which reach a watch as ordinary notifications."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("kiran", password="pw")
+        self.job = Workplace.objects.create(user=self.user, name="Courtlands")
+
+    def shift(self, hours, **extra):
+        return Shift.objects.create(user=self.user, workplace=self.job, clock_in=timezone.now() - timedelta(hours=hours), **extra)
+
+    def told(self):
+        from apps.notifications.models import Notification
+        return list(Notification.objects.filter(recipient=self.user).order_by("pk"))
+
+    def test_a_long_stretch_without_a_break_is_nudged_once(self):
+        from .notify import break_reminders
+        self.shift(5.5)
+        break_reminders()
+        break_reminders()
+        told = self.told()
+        self.assertEqual(len(told), 1)
+        self.assertEqual(told[0].title, "Time for a break")
+        self.assertIn("5h 30m at Courtlands", told[0].body)
+
+    def test_the_stretch_starts_again_after_a_break(self):
+        from .notify import break_reminders
+        shift = self.shift(6)
+        Break.objects.create(shift=shift, break_start=timezone.now() - timedelta(hours=2, minutes=30), break_end=timezone.now() - timedelta(hours=2))
+        break_reminders()
+        self.assertEqual(self.told(), [])
+        # Five hours on from that break, a second nudge for the new stretch.
+        break_reminders(now=timezone.now() + timedelta(hours=3, minutes=1))
+        self.assertEqual(len(self.told()), 1)
+
+    def test_no_nudge_while_on_a_break_or_after_clocking_out(self):
+        from .notify import break_reminders
+        self.shift(6, status=Shift.Status.ON_BREAK)
+        Shift.objects.create(user=self.user, workplace=self.job, clock_in=timezone.now() - timedelta(hours=9),
+                             clock_out=timezone.now() - timedelta(hours=1), status=Shift.Status.COMPLETED)
+        break_reminders()
+        self.assertEqual(self.told(), [])
+
+    def test_a_running_shift_near_its_cap_is_warned_once(self):
+        from .notify import limit_soon_reminders
+        self.job.hours_limit, self.job.limit_period = 6, Workplace.Period.WEEK
+        self.job.save()
+        self.shift(5 + 40 / 60)
+        limit_soon_reminders()
+        limit_soon_reminders()
+        told = self.told()
+        self.assertEqual(len(told), 1)
+        self.assertRegex(told[0].title, r"^(19|20)m left before your limit$")
+        self.assertRegex(told[0].body, r"^At Courtlands you've worked 5h 4[01]m of 6h this week\.$")
+
+    def test_no_warning_far_from_the_cap_without_a_cap_or_once_over(self):
+        from .notify import limit_soon_reminders
+        self.shift(2)
+        limit_soon_reminders()  # no cap at all
+        self.job.hours_limit, self.job.limit_period = 6, Workplace.Period.WEEK
+        self.job.save()
+        limit_soon_reminders()  # four hours to go
+        self.job.hours_limit = 1
+        self.job.save()
+        limit_soon_reminders()  # already over: the period reminder speaks to that
+        self.assertEqual(self.told(), [])
+
+    def test_the_clock_reply_carries_this_weeks_hours(self):
+        from apps.api.views.timeclock import clock_state
+        self.shift(3)
+        week = clock_state(self.user)["week"]["worked"]
+        self.assertGreaterEqual(week["seconds"], 3 * 3600 - 5)
+
+
+class DoubleTimeSiteTests(TestCase):
+    """The website's workplace form offers double time, explains it, and refuses it before overtime."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("kiran", password="pw")
+        self.job = Workplace.objects.create(user=self.user, name="Courtlands", hourly_rate=30)
+        self.client.force_login(self.user)
+
+    def test_the_form_offers_and_explains_double_time(self):
+        page = self.client.get(reverse("timeclock:workplace_edit", args=[self.job.pk]))
+        self.assertContains(page, 'name="double_time_after_hours"')
+        self.assertContains(page, 'name="double_time_multiplier"')
+        self.assertContains(page, "8 h normal, 2 h overtime, 2 h double time")
+
+    def test_double_time_before_overtime_is_refused_with_a_reason(self):
+        from .forms import WorkplaceForm
+        data = {"name": "Courtlands", "hourly_rate": "30", "limit_period": "FORTNIGHT", "week_starts_on": "0",
+                "fortnight_starts_on": "3", "fortnight_phase": "this", "month_starts_on": "1",
+                "overtime_after_hours": "10", "double_time_after_hours": "9"}
+        form = WorkplaceForm(data, instance=self.job, user=self.user)
+        self.assertFalse(form.is_valid())
+        self.assertIn("after overtime (10 h)", form.errors["double_time_after_hours"][0])
+        form = WorkplaceForm({**data, "double_time_after_hours": "12"}, instance=self.job, user=self.user)
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_out_of_range_rates_and_hours_are_said_plainly(self):
+        from .forms import WorkplaceForm
+        data = {"name": "Courtlands", "hourly_rate": "30", "limit_period": "FORTNIGHT", "week_starts_on": "0",
+                "fortnight_starts_on": "3", "fortnight_phase": "this", "month_starts_on": "1"}
+        form = WorkplaceForm({**data, "overtime_after_hours": "30", "overtime_multiplier": "7", "sunday_multiplier": "0.5"}, instance=self.job, user=self.user)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["overtime_after_hours"], ["Use a number of hours from 0.25 to 24, like 8."])
+        rate = ["Use a rate from 1× to 5× — 1 is the normal rate, 1.5 time and a half, 2 double."]
+        self.assertEqual((form.errors["overtime_multiplier"], form.errors["sunday_multiplier"]), (rate, rate))
+        self.assertNotIn("Ensure this value", str(form.errors))

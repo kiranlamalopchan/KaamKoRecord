@@ -12,7 +12,9 @@ import { forgetPushToken, registerForPush } from "@/push/register";
 
 import { armBiometric, biometricUser, disarmBiometric } from "./biometric";
 import { getToken, onTokenChange, setToken } from "./token";
+import { onWatchClockChanged, startClockSync, startWatchSync } from "@/watch/link";
 import { authenticateWithProvider, type SocialProvider } from "./social";
+import { Said } from "@/api/errors";
 
 type Session = {
   ready: boolean;
@@ -57,14 +59,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    load();
+    // The watch follows once the saved server is known, not the build's default.
+    let stopWatch = () => {};
+    let gone = false;
+    const stopClock = startClockSync(client);
+    load().finally(() => { if (!gone) stopWatch = startWatchSync(); });
+    // A tap on the watch: the phone's clock, widgets and live shift catch up.
+    const offWatch = onWatchClockChanged(() => { void client.invalidateQueries({ queryKey: ["clock"] }); });
     // The API client drops the token on a 401: forget who we were.
-    return onTokenChange(async () => {
+    const offToken = onTokenChange(async () => {
       if (!(await getToken())) {
         setMe(null);
         client.clear();
       }
     });
+    return () => { gone = true; stopWatch(); stopClock(); offWatch(); offToken(); };
   }, [load, client]);
 
   const signedIn = useCallback(async (result: { token: string; me: Me }) => {
@@ -126,7 +135,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           // network is another matter — the lock keeps it for later.
           if (e instanceof ApiError && e.status === 401) {
             await disarmBiometric();
-            throw new Error("That sign-in has expired. Sign in with your password once more.");
+            throw new Said("That sign-in has expired. Sign in with your password once more.");
           }
           throw e;
         }

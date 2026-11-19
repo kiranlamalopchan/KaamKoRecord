@@ -1,6 +1,7 @@
 import * as Crypto from "expo-crypto";
 import { timesheet, type ClockActionMeta, type ClockState, type Duration } from "@/api";
 import { ApiError } from "@/api/client";
+import { describeError } from "@/api/errors";
 import { readPrivate, writePrivate, usePrivateState } from "@/storage/private";
 
 export type ClockActionKind = "clock_in" | "start_break" | "end_break" | "clock_out";
@@ -88,7 +89,7 @@ export async function syncClockActions(scope: string, isCurrent: () => boolean) 
         await change(scope, rows => rows.filter(row => row.client_id !== action.client_id));
       } catch (error) {
         if (!(error instanceof ApiError) || error.status === 0 || error.status === 401 || error.status >= 500) return;
-        await change(scope, rows => rows.map(row => row.client_id === action.client_id ? { ...row, review: true, error: error.message } : row));
+        await change(scope, rows => rows.map(row => row.client_id === action.client_id ? { ...row, review: true, error: describeError(error).message } : row));
         return;
       }
     }

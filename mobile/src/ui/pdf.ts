@@ -8,6 +8,7 @@ import { getToken } from "@/auth/token";
 
 import { tell } from "./confirm";
 import { native } from "./native";
+import { ApiError } from "@/api/client";
 
 export async function openFile(url: string, name: string, mimeType: string, body?: unknown): Promise<void> {
   const token = await getToken();
@@ -18,9 +19,9 @@ export async function openFile(url: string, name: string, mimeType: string, body
     : { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body) };
   const response = await fetch(url, init);
   if (!response.ok) {
-    let detail = `The server said no (HTTP ${response.status}).`;
-    try { detail = (await response.json()).detail || detail; } catch { /* not JSON */ }
-    throw new Error(detail);
+    let detail = "";
+    try { detail = (await response.json()).detail || ""; } catch { /* not JSON */ }
+    throw new ApiError(response.status, detail);
   }
   const { Directory, File, Paths } = native<typeof import("expo-file-system")>(() => require("expo-file-system"));
   const Sharing = native<typeof import("expo-sharing")>(() => require("expo-sharing"));

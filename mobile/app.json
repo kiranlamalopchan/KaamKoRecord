@@ -6,13 +6,14 @@
       "ios",
       "android"
     ],
-    "version": "1.4.3",
+    "version": "1.4.4",
     "scheme": "mywork",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.kiranlama.mywork",
+      "appleTeamId": "LJ73A8F75U",
       "supportsTablet": true,
       "requireFullScreen": true,
       "entitlements": {
@@ -25,8 +26,7 @@
         "NSPhotoLibraryUsageDescription": "To select picking slips, story media, a profile photo or an optional problem screenshot.",
         "NSMicrophoneUsageDescription": "To record voice messages and sound with a story video.",
         "ITSAppUsesNonExemptEncryption": false
-      },
-      "buildNumber": "1"
+      }
     },
     "android": {
       "package": "com.kiranlama.merokaam",
@@ -137,6 +137,10 @@
         }
       ],
       "./plugins/with-work-widget",
+      "./plugins/with-compact-android-tabs",
+      "@bacons/apple-targets",
+      "./plugins/with-watch-version",
+      "./plugins/with-wear-app",
       [
         "expo-audio",
         {

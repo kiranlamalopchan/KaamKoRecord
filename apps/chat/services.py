@@ -95,6 +95,32 @@ def member_ids(conversation):
     return list(ConversationMember.objects.filter(conversation=conversation).values_list("user_id", flat=True))
 
 
+def remove_message(message, audience=None):
+    """
+    Take a message's words and files away for everyone, leaving "Message
+    removed" in its place — the sender unsending it, or a moderator taking
+    it down after a report.
+    """
+    from apps.chat.realtime import publish
+    from django.utils import timezone
+
+    if audience is None:
+        audience = member_ids(message.conversation) if message.conversation_id else [message.sender_id, message.recipient_id]
+    photo = message.photo
+    message.body = ""
+    message.photo = ""
+    message.unsent_at = timezone.now()
+    message.save(update_fields=["body", "photo", "unsent_at"])
+    message.reactions.all().delete()
+    message.pins.all().delete()
+    if photo:
+        photo.delete(save=False)
+    for attachment in message.attachments.all():
+        attachment.drop_files()
+    message.attachments.all().delete()
+    publish([pk for pk in audience if pk], "message.unsent", conversation_id=str(message.conversation_id), message_id=message.pk)
+
+
 # ---- saying something ---------------------------------------------------------------
 
 def clean_body(body, *, required):

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% load avatars ui %}
+{% block title %}Reports · KaamKoRecord{% endblock %}
+
+{% comment %}
+  The moderators' queue: one line per reported thing (several reports of the
+  same notice are one line, with how many), what was said and why, and two
+  answers — Take down hides it from everyone, Dismiss leaves it up.
+{% endcomment %}
+
+{% block content %}
+<a class="backlink" href="{% url 'accounts:settings' %}">{% icon "back" %} Settings</a>
+<div class="page-head">
+  <h1 class="page-title">Reports</h1>
+  <p class="page-sub">Check what was reported against the community rules, then take it down or dismiss the report.</p>
+</div>
+
+<nav class="report-tabs" aria-label="Reports">
+  <a class="btn btn--sm{% if not handled %} btn--primary{% endif %}" href="?status=open"{% if not handled %} aria-current="page"{% endif %}>Open</a>
+  <a class="btn btn--sm{% if handled %} btn--primary{% endif %}" href="?status=handled"{% if handled %} aria-current="page"{% endif %}>Handled</a>
+</nav>
+
+{% if lines %}
+  <div class="card">
+    {% for line in lines %}{% with r=line.report %}
+      <div class="report-row">
+        <div class="report-row__head">
+          <span class="report-row__kind">{{ r.get_kind_display }}</span>
+          <span class="report-row__reason">{{ r.get_reason_display }}</span>
+          {% if line.count > 1 %}<span class="report-row__count">{{ line.count }} reports</span>{% endif %}
+          {% if not line.up %}<span class="muted text-sm">Already gone</span>{% endif %}
+        </div>
+        {% if r.excerpt %}<blockquote class="report-row__excerpt">{{ r.excerpt }}</blockquote>{% endif %}
+        {% if r.note %}<p class="text-sm">“{{ r.note }}”</p>{% endif %}
+        <p class="muted text-sm">
+          {% if r.accused %}By <a href="{% url 'notices:person' r.accused.username %}">{{ r.accused.username }}</a> · {% endif %}reported by {{ r.reporter.username }} · {{ r.created_at|date:"j M Y, g:i a" }}
+          {% if r.handled_at %} · handled {{ r.handled_at|date:"j M, g:i a" }}{% endif %}
+        </p>
+        {% if not handled %}
+          <div class="report-row__actions">
+            {% if line.can_take_down and line.up %}
+              <form method="post" onsubmit="return confirm('Take this {{ r.get_kind_display|lower }} down for everyone?');">
+                {% csrf_token %}
+                <input type="hidden" name="report" value="{{ r.pk }}">
+                <input type="hidden" name="action" value="take_down">
+                <button type="submit" class="btn btn--sm btn--danger">Take down</button>
+              </form>
+            {% endif %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="report" value="{{ r.pk }}">
+              <input type="hidden" name="action" value="dismiss">
+              <button type="submit" class="btn btn--sm">Dismiss</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+    {% endwith %}{% endfor %}
+  </div>
+{% else %}
+  <p class="card card__pad muted">{% if handled %}Nothing handled yet.{% else %}No open reports. Nice and quiet.{% endif %}</p>
+{% endif %}
+{% endblock %}

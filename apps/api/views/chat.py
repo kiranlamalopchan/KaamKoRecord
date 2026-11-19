@@ -283,19 +283,7 @@ class MessageDetail(APIView):
         message = self._message(request, pk)
         if message is None:
             return Response({"detail": "That message can no longer be unsent."}, status=status.HTTP_409_CONFLICT)
-        photo = message.photo
-        message.body = ""
-        message.photo = ""
-        message.unsent_at = timezone.now()
-        message.save(update_fields=["body", "photo", "unsent_at"])
-        message.reactions.all().delete()
-        message.pins.all().delete()
-        if photo:
-            photo.delete(save=False)
-        for attachment in message.attachments.all():
-            attachment.drop_files()
-        message.attachments.all().delete()
-        publish(self.audience, "message.unsent", conversation_id=str(message.conversation_id), message_id=message.pk)
+        services.remove_message(message, self.audience)
         return Response(message_json(request, message, request.user))
 
 

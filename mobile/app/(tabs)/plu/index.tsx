@@ -60,6 +60,8 @@ export default function Plu() {
   const idleQuery = useCatalogueIdle(catalogueId);
   const idleData = idleQuery.data;
   const hasPlu = ["plu", "plu_no"].includes(idleData?.catalogue?.code_column.toLowerCase() || "");
+  // Any catalogue with a barcode column can be scanned, not only PLU ones.
+  const hasCode = !!idleData?.catalogue?.code_column;
   const idle = !typed.trim();
   const waiting = !idle && (typed.trim() !== q || search.isLoading);
   const rows = search.data?.results ?? [];
@@ -102,24 +104,29 @@ export default function Plu() {
   </View>;
 
   const catalogueContent = <View style={styles.catalogueContent} testID="catalogue-list">
-    <Button title="Upload a new catalogue" icon="add" onPress={upload} />
+    <Button title="Create a catalogue" icon="add" onPress={() => router.push("/items/new" as never)} testID="catalogue-create" />
+    <Button title="Upload a CSV file" icon="cloud-upload-outline" kind="plain" onPress={upload} />
     {idleQuery.error ? <ErrorBanner error={idleQuery.error} onRetry={idleQuery.refetch} /> : null}
     {deletion.error ? <Text accessibilityRole="alert" style={{ color: t.danger }}>{deletion.error}</Text> : null}
     {idleQuery.isLoading ? <SkeletonRows count={3} /> : null}
     {idleData?.catalogues.map(saved => <Card key={saved.id}>
       <View style={styles.catalogueRow}>
-        <Ionicons name="folder-outline" size={24} color={t.brandStrong} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: t.text, fontWeight: "700", fontSize: 18 }}>{saved.name}</Text>
-          <Text style={{ color: t.muted, marginTop: sp[1] }}>{saved.count.toLocaleString()} private items</Text>
-        </View>
+        <Pressable onPress={() => router.push(`/items/table/${saved.id}` as never)} accessibilityRole="button" accessibilityLabel={`Open ${saved.name}, ${saved.count.toLocaleString()} items`}
+          style={({ pressed }) => [{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: sp[3] }, pressed && { opacity: 0.7 }]} testID="catalogue-open">
+          <Ionicons name="folder-outline" size={24} color={t.brandStrong} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: t.text, fontWeight: "700", fontSize: 18 }}>{saved.name}</Text>
+            <Text style={{ color: t.muted, marginTop: sp[1] }}>{saved.count.toLocaleString()} private items</Text>
+          </View>
+        </Pressable>
         <ActionMenu label={`Actions for ${saved.name}`} disabled={deletion.busyId !== null} actions={[
+          { label: "Items", accessibilityLabel: `Items in ${saved.name}`, icon: "list-outline", onPress: () => router.push(`/items/table/${saved.id}` as never) },
           { label: "Edit", accessibilityLabel: `Edit ${saved.name}`, icon: "create-outline", onPress: () => router.push(`/items/catalogue/${saved.id}`) },
           { label: "Delete", accessibilityLabel: `Delete ${saved.name}`, icon: "trash-outline", destructive: true, onPress: () => deletion.remove(saved.id, saved.name, saved.count) },
         ]} />
       </View>
     </Card>)}
-    {idleData && !idleData.catalogues.length ? <Empty icon="folder-open-outline" title="Your first catalogue" sub="Upload groceries, meat, or any CSV and give it a name." /> : null}
+    {idleData && !idleData.catalogues.length ? <Empty icon="folder-open-outline" title="Your first catalogue" sub="Create one here and add items with their barcodes, or upload a CSV." /> : null}
   </View>;
 
   const single = idleData && idleData.catalogues.length <= 1 ? idleData.catalogue?.name : undefined;
@@ -138,7 +145,7 @@ export default function Plu() {
       {typed ? <Pressable onPress={() => { tick(); changeSearch(""); box.current?.focus(); }} accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={4}
         style={({ pressed }) => [styles.icon, { backgroundColor: pressed ? t.surface2 : "transparent" }]}>
         <Ionicons name="close-circle" size={20} color={t.muted} />
-      </Pressable> : hasPlu ? <Pressable onPress={() => router.push("/items/scanner" as never)} accessibilityRole="button" accessibilityLabel="Scan barcode" testID="barcode-scan" hitSlop={4}
+      </Pressable> : hasCode ? <Pressable onPress={() => router.push((catalogueId ? `/items/scanner?catalogue=${catalogueId}` : "/items/scanner") as never)} accessibilityRole="button" accessibilityLabel="Scan barcode" testID="barcode-scan" hitSlop={4}
         style={({ pressed }) => [styles.icon, { backgroundColor: pressed ? t.surface2 : "transparent" }]}>
         <Ionicons name="barcode-outline" size={22} color={t.text2} />
       </Pressable> : null}

@@ -2,6 +2,7 @@ import React from "react";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import Pay from "@/screens/Pay";
 import { timesheet } from "@/api";
+import { ApiError } from "@/api/client";
 
 const mockPush = jest.fn(), mockChanged = jest.fn(), mockConfirm = jest.fn(), mockNotify = jest.fn(), mockTell = jest.fn();
 const duration = (hours: number) => ({ seconds: hours * 3600, hm: `${hours}h`, hours });
@@ -80,7 +81,7 @@ test("custom date settlement and undo retain their scoped confirmation", async (
 });
 
 test("a rejected payment reports failure without success feedback", async () => {
-  jest.mocked(timesheet.recordPayment).mockRejectedValueOnce(new Error("That period was already paid."));
+  jest.mocked(timesheet.recordPayment).mockRejectedValueOnce(new ApiError(400, "That period was already paid."));
   const screen = await render(<Pay />);
   await fireEvent.press(screen.getByRole("button", { name: "Payment received" }));
   await act(async () => { await mockConfirm.mock.calls.at(-1)[3](); });

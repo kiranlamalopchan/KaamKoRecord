@@ -36,3 +36,46 @@ def publish(user_ids, event, **data):
                 }))
 
     transaction.on_commit(send)
+
+
+# ---- who is looking at which conversation right now ------------------------
+#
+# The app says so over its realtime socket while a conversation is open on
+# screen (and the app in front), every VIEW_REFRESH seconds; it says it left,
+# or the socket closes, when it isn't. A message to somebody looking at that
+# conversation needs no notification: it is already on their screen. A mark
+# not refreshed lapses after VIEW_TTL, so a phone that dies quietly never
+# silences anything for long.
+
+VIEW_TTL = 45
+
+
+def _view_key(user_id, conversation_id):
+    return f"chat:viewing:{int(user_id)}:{conversation_id}"
+
+
+def mark_viewing(user_id, conversation_id, channel, on=True):
+    """This socket (`channel`) has the conversation open, or no longer does."""
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    key = _view_key(user_id, conversation_id)
+    now = timezone.now().timestamp()
+    screens = {ch: until for ch, until in (cache.get(key) or {}).items() if until > now}
+    if on:
+        screens[channel] = now + VIEW_TTL
+    else:
+        screens.pop(channel, None)
+    if screens:
+        cache.set(key, screens, timeout=VIEW_TTL)
+    else:
+        cache.delete(key)
+
+
+def is_viewing(user_id, conversation_id):
+    """Whether any of the person's phones has this conversation open right now."""
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    now = timezone.now().timestamp()
+    return any(until > now for until in (cache.get(_view_key(user_id, conversation_id)) or {}).values())

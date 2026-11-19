@@ -9,6 +9,7 @@ import Privacy from "../../app/profile/privacy";
 import Help from "../../app/profile/help";
 import { ProfilePhoto } from "@/ui/ProfilePhoto";
 import { me as api, type Me } from "@/api";
+import { ApiError } from "@/api/client";
 const mockPush = jest.fn(), mockSet = jest.fn(), mockSignOut = jest.fn(), mockConfirm = jest.fn(), mockNotify = jest.fn(), mockChoose = jest.fn(), mockToggle = jest.fn();
 let mockMe: Me;
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
@@ -135,23 +136,23 @@ test.each(["picker", "upload"])("%s errors are caught and allow retry", async so
   if (source === "picker") jest.mocked(ImagePicker.launchImageLibraryAsync).mockRejectedValueOnce(new Error("Access denied."));
   else {
     jest.mocked(ImagePicker.launchImageLibraryAsync).mockResolvedValueOnce({ canceled: false, assets: [{ uri: "file:///photo.jpg", width: 80, height: 80 }] });
-    jest.mocked(api.setPhoto).mockRejectedValueOnce(new Error("Upload failed."));
+    jest.mocked(api.setPhoto).mockRejectedValueOnce(new ApiError(500, "The server hit an error (HTTP 500)."));
   }
   const s = await render(<ProfilePhoto me={mockMe} onChange={mockSet} />);
   await choose(s, "Choose from Library");
-  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith("Couldn't update your photo", source === "picker" ? "Access denied." : "Upload failed."));
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith("Couldn't update your photo", source === "picker" ? "Something went wrong. Please try again." : "Something went wrong on our side. Please try again."));
   expect(s.getByRole("button", { name: "Profile photo actions" })).not.toBeDisabled();
   expect(mockSet).not.toHaveBeenCalled();
 });
 test("remove is available, needs confirmation, and catches rejection", async () => {
   mockMe.photo = "https://example.test/photo.jpg";
-  jest.mocked(api.clearPhoto).mockRejectedValueOnce(new Error("Connection lost."));
+  jest.mocked(api.clearPhoto).mockRejectedValueOnce(new ApiError(0, "Couldn't reach the server."));
   const s = await render(<ProfilePhoto me={mockMe} onChange={mockSet} />);
   await choose(s, "Remove Photo");
   await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
   expect(api.clearPhoto).not.toHaveBeenCalled();
   await act(async () => mockConfirm.mock.calls[0][3]());
-  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith("Couldn't update your photo", "Connection lost."));
+  await waitFor(() => expect(mockNotify).toHaveBeenCalledWith("Couldn't update your photo", "We couldn't connect. Check your internet and try again."));
   expect(mockSet).not.toHaveBeenCalled();
 });
 test("successful upload uses the saved response and prevents a second operation while busy", async () => {

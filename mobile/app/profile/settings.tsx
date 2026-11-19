@@ -18,6 +18,7 @@ export default function ProfileSettings() {
         <ProfileRow icon="notifications-outline" title={tr("Notifications")} onPress={() => router.push("/profile/notifications")} />
         <ProfileRow icon="shield-checkmark-outline" title={tr("Privacy & security")} onPress={() => router.push("/profile/privacy")} />
         <ProfileRow icon="help-circle-outline" title={tr("Help")} onPress={() => router.push("/profile/help")} />
+        {me.is_moderator ? <ProfileRow icon="shield-half-outline" title={tr("Reports")} onPress={() => router.push("/moderation/reports" as never)} testID="moderation-reports" /> : null}
         {me.can_manage_festival ? <ProfileRow icon="sparkles-outline" title={tr("Festival banner")} onPress={() => router.push("/profile/festival")} testID="manage-festival-banner" /> : null}
       </ProfileGroup>
     </Page>

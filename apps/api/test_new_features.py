@@ -161,10 +161,11 @@ class ChatTests(ApiTestCase):
         with patch("apps.notifications.push.send_to_user") as push:
             self.assertEqual(self.say("Can you cover Saturday?").status_code, 201)
             self.say("Morning shift.")
-        # One line in the inbox for the conversation, and a buzz for each message.
-        self.assertEqual(push.call_count, 2)
+        # One line in the inbox for the conversation, and one buzz for the burst.
+        self.assertEqual(push.call_count, 1)
         told = Notification.objects.get(recipient=self.sam, kind=Kind.MESSAGE)
         self.assertEqual(told.body, "Morning shift.")
+        self.assertEqual(told.title, "kiran · 2 new messages")
         self.assertEqual(told.url, "/profile/?chat=kiran")
 
         inbox = self.api("get", "messages", token=self.sam_token).json()
@@ -177,6 +178,28 @@ class ChatTests(ApiTestCase):
         self.assertEqual(self.api("get", "messages", token=self.sam_token).json()["unread"], 0)
         # Reading theirs does not mark yours.
         self.assertEqual(Message.objects.filter(read_at__isnull=False).count(), 2)
+
+    def test_a_burst_buzzes_once_and_reading_it_lets_the_next_one_through(self):
+        with patch("apps.notifications.push.send_to_user") as push:
+            for word in ["one", "two", "three", "four", "five"]:
+                self.say(word)
+            self.assertEqual(push.call_count, 1)
+            told = Notification.objects.get(recipient=self.sam, kind=Kind.MESSAGE)
+            self.assertEqual((told.title, told.body), ("kiran · 5 new messages", "five"))
+            # Sam opens the chat: the next message is news again.
+            self.api("get", "message_thread", args=["kiran"], token=self.sam_token)
+            self.say("six")
+            self.assertEqual(push.call_count, 2)
+            self.assertEqual(Notification.objects.get(recipient=self.sam, kind=Kind.MESSAGE).title, "kiran")
+
+    def test_a_burst_left_unread_buzzes_again_after_a_quiet_spell(self):
+        with patch("apps.notifications.push.send_to_user") as push:
+            self.say("one")
+            self.say("two")
+            self.assertEqual(push.call_count, 1)
+            Notification.objects.filter(recipient=self.sam).update(pushed_at=timezone.now() - timedelta(minutes=16))
+            self.say("three")
+            self.assertEqual(push.call_count, 2)
 
     def test_only_friends_and_only_real_words(self):
         alex = User.objects.create_user("alex", password="pw12345678")

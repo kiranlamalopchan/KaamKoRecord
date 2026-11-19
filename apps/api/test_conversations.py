@@ -615,3 +615,117 @@ class AttachmentTests(ConversationTestCase):
         import os
         os.unlink(out.name)
         return data
+
+
+class ChatListTests(ConversationTestCase):
+    """The chat list like other messengers: a story ring on a friend's photo, and the Archived chats row."""
+
+    def test_a_friends_story_rings_their_photo_until_watched(self):
+        from django.utils import timezone
+        from apps.stories.models import Story, StoryView, Visibility
+        cid = self.direct("sam")
+        self.send(cid, "Hi")
+        row = lambda: next(r for r in self.api("get", "message_inbox").json()["conversations"] if r["id"] == cid)  # noqa: E731
+        self.assertIsNone(row()["story"])
+        story = Story.objects.create(author=self.sam, visibility=Visibility.PUBLIC, expires_at=timezone.now() + timezone.timedelta(hours=1))
+        self.assertEqual(row()["story"], "unseen")
+        StoryView.objects.create(story=story, viewer=self.kiran)
+        self.assertEqual(row()["story"], "seen")
+        story.expires_at = timezone.now() - timezone.timedelta(minutes=1)
+        story.save(update_fields=["expires_at"])
+        self.assertIsNone(row()["story"])
+
+    def test_the_first_page_says_how_many_chats_are_archived(self):
+        sam, ram = self.direct("sam"), self.direct("ram")
+        self.send(sam, "one")
+        self.send(ram, "two")
+        self.assertEqual(self.api("get", "message_inbox").json()["archived"], 0)
+        self.api("patch", "message_conversation_settings", {"archived": True}, args=[ram])
+        inbox = self.api("get", "message_inbox").json()
+        self.assertEqual((inbox["archived"], [r["id"] for r in inbox["conversations"]]), (1, [sam]))
+        archived = self.api("get", "message_inbox", {"archived": "1"}).json()
+        self.assertEqual([r["id"] for r in archived["conversations"]], [ram])
+        self.assertNotIn("archived", archived)
+
+
+class ViewingTests(ConversationTestCase):
+    """No notification for a message in a conversation that's open on your screen."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def told(self, who):
+        return Notification.objects.filter(recipient__username=who, kind=Kind.MESSAGE).count()
+
+    def test_a_direct_message_to_someone_reading_the_chat_buzzes_nobody(self):
+        from apps.chat.realtime import mark_viewing
+        cid = self.direct("sam")
+        mark_viewing(self.sam.pk, cid, "sams-phone")
+        self.assertEqual(self.send(cid, "You there?").status_code, 201)
+        self.assertEqual(self.told("sam"), 0)
+        # They leave the chat: the next one is a notification again.
+        mark_viewing(self.sam.pk, cid, "sams-phone", on=False)
+        self.send(cid, "Hello?")
+        self.assertEqual(self.told("sam"), 1)
+
+    def test_in_a_group_only_the_ones_reading_it_are_spared(self):
+        from apps.chat.realtime import mark_viewing
+        cid = self.group()
+        mark_viewing(self.ram.pk, cid, "rams-phone")
+        self.send(cid, "Shift swap?")
+        self.assertEqual(self.told("ram"), 0)
+        self.assertEqual(self.told("sam"), 1)
+
+    def test_another_open_chat_doesnt_count(self):
+        from apps.chat.realtime import mark_viewing
+        mark_viewing(self.sam.pk, self.group(), "sams-phone")
+        self.send(self.direct("sam"), "Not that chat")
+        self.assertEqual(self.told("sam"), 1)
+
+    def test_a_mark_nobody_refreshed_lapses(self):
+        from apps.chat.realtime import _view_key, is_viewing
+        cid = self.direct("sam")
+        cache.set(_view_key(self.sam.pk, cid), {"sams-phone": 0}, timeout=60)  # refreshed long ago
+        self.assertFalse(is_viewing(self.sam.pk, cid))
+        self.send(cid, "Still told")
+        self.assertEqual(self.told("sam"), 1)
+
+    def test_two_phones_one_still_reading(self):
+        from apps.chat.realtime import is_viewing, mark_viewing
+        cid = self.direct("sam")
+        mark_viewing(self.sam.pk, cid, "phone")
+        mark_viewing(self.sam.pk, cid, "tablet")
+        mark_viewing(self.sam.pk, cid, "phone", on=False)
+        self.assertTrue(is_viewing(self.sam.pk, cid))
+
+    def test_the_phone_says_so_over_its_socket_and_closing_it_clears_it(self):
+        from unittest.mock import AsyncMock
+        from urllib.parse import quote
+
+        from asgiref.sync import async_to_sync
+        from channels.db import database_sync_to_async as database_sync
+        from channels.testing import WebsocketCommunicator
+
+        from apps.chat.consumers import ChatConsumer
+        from apps.chat.realtime import is_viewing
+        from mywork.asgi import application
+
+        cid = self.direct("sam")
+        ticket = self.api("post", "message_realtime_ticket", token=self.as_("sam")).json()["ticket"]
+
+        async def visit():
+            with patch.object(ChatConsumer, "_active_user", new=AsyncMock(return_value=True)), \
+                    patch.object(ChatConsumer, "_member", new=AsyncMock(side_effect=lambda c: c == cid)):
+                socket = WebsocketCommunicator(application, f"/ws/chat/?ticket={quote(ticket)}")
+                self.assertTrue((await socket.connect())[0])
+                await socket.receive_json_from()
+                await socket.send_json_to({"type": "viewing", "conversation_id": cid})
+                await socket.send_json_to({"type": "viewing", "conversation_id": str(uuid.uuid4())})  # not theirs: ignored
+                await socket.send_json_to({"type": "ping"})
+                await socket.receive_nothing(timeout=0.2)
+                self.assertTrue(await database_sync(is_viewing)(self.sam.pk, cid))
+                await socket.disconnect()
+            self.assertFalse(await database_sync(is_viewing)(self.sam.pk, cid))
+
+        async_to_sync(visit)()

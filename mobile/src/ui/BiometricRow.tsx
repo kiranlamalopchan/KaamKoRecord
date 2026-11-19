@@ -15,6 +15,7 @@ import { Card } from "./index";
 import { success, tick } from "./haptics";
 import { notify } from "./confirm";
 import { alpha, sp, useTheme } from "./theme";
+import { errorMessage } from "@/api/errors";
 
 export function BiometricRow({ username, minimal = false }: { username: string; minimal?: boolean }) {
   const t = useTheme();
@@ -53,7 +54,7 @@ export function BiometricRow({ username, minimal = false }: { username: string; 
         setOn(false);
       }
     } catch (e: any) {
-      notify("Couldn't change that", e?.message || "");
+      notify("Couldn't change that", errorMessage(e));
     } finally {
       setBusy(false);
     }

@@ -348,3 +348,112 @@ class SearchPaginationTests(TestCase):
         data = self.api("get", "item_search", params).json()
         self.assertEqual(data["results"], [])
         self.assertIsNone(data["next"])
+
+
+class HandMadeCatalogueTests(TestCase):
+    """A catalogue made in the app: columns typed in, items added one by one with a barcode."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", password="pw")
+        self.bob = User.objects.create_user("bob", password="pw")
+        self.headers = {"HTTP_AUTHORIZATION": f"Token {Token.objects.create(user=self.alice).key}"}
+        self.bob_headers = {"HTTP_AUTHORIZATION": f"Token {Token.objects.create(user=self.bob).key}"}
+
+    def call(self, method, name, data=None, pk=None, headers=None):
+        return getattr(self.client, method)(reverse("api:" + name, args=[pk] if pk else None), data=data,
+            content_type="application/json", **(headers or self.headers))
+
+    def make(self, **data):
+        body = {"name": "Shop", "headers": ["Name", "Barcode", "Price"], "title_column": "Name", "code_column": "Barcode"}
+        body.update(data)
+        return self.call("post", "catalogue_create", body)
+
+    def test_create_add_scan_edit_and_delete_an_item(self):
+        made = self.make()
+        self.assertEqual(made.status_code, 201, made.content)
+        pk = made.json()["id"]
+        self.assertEqual(made.json()["search_columns"], ["Name", "Barcode", "Price"])
+        added = self.call("post", "catalogue_items", {"fields": {"Name": "Milk 2L", "Barcode": "9300633603501", "Price": "3.10"}}, pk=pk)
+        self.assertEqual(added.status_code, 201, added.content)
+        item = added.json()
+        self.assertEqual((item["title"], item["code"], item["fields"]["Price"]), ("Milk 2L", "9300633603501", "3.10"))
+        # A scan finds it by its barcode, details and all.
+        found = self.client.get(reverse("api:item_search"), {"q": "9300633603501", "catalogue": pk}, **self.headers).json()
+        self.assertEqual(found["results"][0]["fields"]["Price"], "3.10")
+        # Changing one column keeps the others.
+        changed = self.call("patch", "item_detail", {"fields": {"Price": "3.40"}}, pk=item["id"])
+        self.assertEqual(changed.status_code, 200, changed.content)
+        self.assertEqual(changed.json()["fields"], {"Name": "Milk 2L", "Barcode": "9300633603501", "Price": "3.40"})
+        table = self.client.get(reverse("api:catalogue_items", args=[pk]), **self.headers).json()
+        self.assertEqual((table["count"], table["catalogue"]["code_column"]), (1, "Barcode"))
+        self.assertEqual(self.call("delete", "item_detail", pk=item["id"]).status_code, 204)
+        self.assertFalse(PluItem.objects.exists())
+
+    def test_items_need_a_name_and_a_barcode_of_their_own(self):
+        pk = self.make().json()["id"]
+        self.assertContains(self.call("post", "catalogue_items", {"fields": {"Barcode": "1"}}, pk=pk), "Enter the Name.", status_code=400)
+        self.call("post", "catalogue_items", {"fields": {"Name": "Tea", "Barcode": "1"}}, pk=pk)
+        self.assertContains(self.call("post", "catalogue_items", {"fields": {"Name": "Coffee", "Barcode": "1"}}, pk=pk),
+            "Another item already has the code 1.", status_code=400)
+
+    def test_catalogue_columns_are_checked(self):
+        self.assertEqual(self.make(headers=["Name", "name"]).status_code, 400)
+        self.assertEqual(self.make(headers=[]).status_code, 400)
+        self.assertEqual(self.make(code_column="Name").status_code, 400)
+        self.make()
+        self.assertContains(self.make(), "already have a catalogue", status_code=400)
+
+    def test_columns_can_be_added_and_a_barcode_column_chosen_later(self):
+        pk = self.make(headers=["Name"], code_column="").json()["id"]
+        item = self.call("post", "catalogue_items", {"fields": {"Name": "Tea"}}, pk=pk).json()
+        grown = self.call("patch", "catalogue_detail", {"headers": ["Name", "Barcode"], "code_column": "Barcode"}, pk=pk)
+        self.assertEqual(grown.status_code, 200, grown.content)
+        self.assertEqual((grown.json()["code_column"], grown.json()["search_columns"]), ("Barcode", ["Name", "Barcode"]))
+        self.call("patch", "item_detail", {"fields": {"Barcode": "555"}}, pk=item["id"])
+        self.assertEqual(PluItem.objects.get().code, "555")
+        self.assertContains(self.call("patch", "catalogue_detail", {"headers": ["Barcode"]}, pk=pk), "not removed", status_code=400)
+
+    def test_choosing_a_barcode_column_fills_codes_from_the_items(self):
+        pk = self.make(headers=["Name", "Ref"], code_column="").json()["id"]
+        self.call("post", "catalogue_items", {"fields": {"Name": "Tea", "Ref": "77"}}, pk=pk)
+        self.call("patch", "catalogue_detail", {"code_column": "Ref"}, pk=pk)
+        self.assertEqual(PluItem.objects.get().code, "77")
+
+    def test_other_people_cannot_see_or_change_items(self):
+        pk = self.make().json()["id"]
+        item = self.call("post", "catalogue_items", {"fields": {"Name": "Tea", "Barcode": "1"}}, pk=pk).json()
+        self.assertEqual(self.client.get(reverse("api:catalogue_items", args=[pk]), **self.bob_headers).status_code, 404)
+        self.assertEqual(self.call("post", "catalogue_items", {"fields": {"Name": "X"}}, pk=pk, headers=self.bob_headers).status_code, 404)
+        self.assertEqual(self.call("patch", "item_detail", {"fields": {"Name": "X"}}, pk=item["id"], headers=self.bob_headers).status_code, 404)
+        self.assertEqual(self.call("delete", "item_detail", pk=item["id"], headers=self.bob_headers).status_code, 404)
+
+
+class StockCountTests(TestCase):
+    setUp, call, make = HandMadeCatalogueTests.setUp, HandMadeCatalogueTests.call, HandMadeCatalogueTests.make
+
+    def stock(self, pk, headers=None, **body):
+        return self.call("post", "item_stock", body, pk=pk, headers=headers)
+
+    def test_scans_add_and_take_away_and_a_count_sets_it(self):
+        pk = self.make(track_stock=True).json()["id"]
+        self.assertTrue(self.client.get(reverse("api:catalogue_detail", args=[pk]), **self.headers).json()["track_stock"])
+        item = self.call("post", "catalogue_items", {"fields": {"Name": "Milk", "Barcode": "1"}}, pk=pk).json()
+        self.assertEqual(item["stock"], 0)
+        for _ in range(3):
+            self.stock(item["id"], change=1)
+        self.assertEqual(self.stock(item["id"], change=-1).json()["stock"], 2)
+        self.assertEqual(self.stock(item["id"], count=12).json()["stock"], 12)
+        # Editing the item's details leaves its stock alone.
+        self.call("patch", "item_detail", {"fields": {"Price": "2"}}, pk=item["id"])
+        self.assertEqual(PluItem.objects.get().stock, 12)
+
+    def test_stock_needs_counting_turned_on_and_whole_numbers(self):
+        pk = self.make().json()["id"]
+        item = self.call("post", "catalogue_items", {"fields": {"Name": "Milk"}}, pk=pk).json()
+        self.assertContains(self.stock(item["id"], change=1), "Turn on stock counting", status_code=400)
+        self.call("patch", "catalogue_detail", {"track_stock": True}, pk=pk)
+        self.assertEqual(self.stock(item["id"], change=1).status_code, 200)
+        for bad in ({"change": "1.5"}, {"change": True}, {"change": None}, {"count": "lots"}, {"count": 10**12}):
+            self.assertEqual(self.stock(item["id"], **bad).status_code, 400, bad)
+        self.assertEqual(self.stock(item["id"], change=1, headers=self.bob_headers).status_code, 404)
+        self.assertEqual(PluItem.objects.get().stock, 1)

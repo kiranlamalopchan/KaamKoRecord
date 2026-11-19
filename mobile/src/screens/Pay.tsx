@@ -23,6 +23,7 @@ import { success, tick } from "@/ui/haptics";
 import { useReducedMotion } from "@/ui/useReducedMotion";
 import { Fold, FoldChevron } from "@/ui/Disclosure";
 import { useT } from "@/i18n";
+import { errorMessage } from "@/api/errors";
 
 const money = (value: number) => `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const GAP = 12;
@@ -234,13 +235,13 @@ function PaymentDetails({ row, today }: { row: PayRow; today: string }) {
       const page = await timesheet.recordPayment(w.id, covers, covers === "date" ? upTo : undefined);
       success(); changed(); setOpen(false);
       tell("Payment recorded", page.message || `${w.name}'s pay has been updated.`);
-    } catch (e: any) { notify("Not recorded", e?.message || ""); }
+    } catch (e: any) { notify("Not recorded", errorMessage(e)); }
     finally { setBusy(false); }
   }, false);
   const undo = () => confirm(`Undo the last payment at ${w.name}?`, "Those hours go back to being owed.", "Undo", async () => {
     setBusy(true);
     try { await timesheet.undoPayment(w.id); success(); changed(); }
-    catch (e: any) { notify("Not undone", e?.message || ""); }
+    catch (e: any) { notify("Not undone", errorMessage(e)); }
     finally { setBusy(false); }
   });
   const unpaid: { run: PayRun; title: string; sub: string; due: boolean }[] = [

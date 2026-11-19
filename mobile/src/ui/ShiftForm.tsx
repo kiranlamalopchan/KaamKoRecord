@@ -15,6 +15,7 @@ import { sp, useTheme } from "./theme";
 import { Choices, DateTimeField, Switch } from "./timesheet";
 import { usePrivateState } from "@/storage/private";
 import { fail, success } from "./haptics";
+import { errorMessage } from "@/api/errors";
 
 type BreakDraft = { key: string; id?: number; break_start: string; break_end: string; delete?: boolean };
 
@@ -30,8 +31,9 @@ export function ShiftForm({ workplaces, initial, editing, onSave, onCancel, draf
   const initialDraft = { workplace: initial.workplace, clockIn: initial.clock_in, clockOut: initial.clock_out, note: initial.note,
     breaks: initial.breaks.map((b, i) => ({ ...b, key: `b${i}` })) as BreakDraft[] };
   const [saved, setSaved, ready] = usePrivateState<typeof initialDraft | null>(draftKey || `shift:${editing ? initial.clock_in : "new"}`, null);
-  const draft = saved || initialDraft;
-  const setDraft = (update: (value: typeof initialDraft) => typeof initialDraft) => setSaved(previous => update(previous || initialDraft));
+  // A draft kept from an older build may lack a field added since: the defaults fill the gap.
+  const draft = saved ? { ...initialDraft, ...saved } : initialDraft;
+  const setDraft = (update: (value: typeof initialDraft) => typeof initialDraft) => setSaved(previous => update(previous ? { ...initialDraft, ...previous } : initialDraft));
   const { workplace, clockIn, clockOut, note, breaks } = draft;
   const setWorkplace = (value: number | "") => setDraft(previous => ({ ...previous, workplace: value }));
   const setClockIn = (value: string) => setDraft(previous => ({ ...previous, clockIn: value }));
@@ -64,9 +66,9 @@ export function ShiftForm({ workplaces, initial, editing, onSave, onCancel, draf
         if (Array.isArray(fields.breaks) && typeof fields.breaks[0] === "object") {
           setBreakErrors(fields.breaks.map((row: Record<string, string[]>) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v[0])]))));
         }
-        setDetail(Object.keys(flat).length || Array.isArray(fields.breaks) ? (Array.isArray(fields.breaks) && typeof fields.breaks[0] === "string" ? String(fields.breaks[0]) : "") : e.message);
+        setDetail(Object.keys(flat).length || Array.isArray(fields.breaks) ? (Array.isArray(fields.breaks) && typeof fields.breaks[0] === "string" ? String(fields.breaks[0]) : "") : errorMessage(e));
       } else {
-        setDetail(e?.message || "That couldn't be saved.");
+        setDetail(errorMessage(e));
       }
     } finally {
       setBusy(false);

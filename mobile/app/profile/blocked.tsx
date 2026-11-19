@@ -10,6 +10,7 @@ import { Avatar, Button, Card, Empty, ErrorBanner, Page, PageTitle, Screen } fro
 import { notify } from "@/ui/confirm";
 import { SkeletonRows } from "@/ui/Skeleton";
 import { sp, useTheme } from "@/ui/theme";
+import { errorMessage } from "@/api/errors";
 
 export default function BlockedScreen() {
   const t = useTheme();
@@ -20,7 +21,7 @@ export default function BlockedScreen() {
   const unblock = async (username: string) => {
     setBusy(username);
     try { await safety.unblock(username); changed(); await q.refetch(); }
-    catch (e: any) { notify("Couldn't unblock them", e?.message); }
+    catch (e: any) { notify("Couldn't unblock them", errorMessage(e)); }
     finally { setBusy(null); }
   };
 

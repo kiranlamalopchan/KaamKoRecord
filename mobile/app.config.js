@@ -2,12 +2,21 @@
 // stores, on top of app.json. EAS names the profile in EAS_BUILD_PROFILE;
 // a local `expo run:ios` / `expo start` has none and counts as development.
 const profile = process.env.EAS_BUILD_PROFILE || "development";
-const forStore = profile === "production" || profile === "production-apk";
+// production, production-apk and production-wear (the Wear OS bundle).
+const forStore = profile.startsWith("production");
+
+// One build number for both stores, so an iOS and an Android build of the
+// same release carry the same number. Raise it by one before every store
+// build (both stores refuse a number they have already seen). The version
+// name is shared too: it is app.json's "version", and after a release it
+// must go up as well (App Store Connect closes a version once it is live).
+const BUILD_NUMBER = 25;
 
 module.exports = ({ config }) => ({
   ...config,
   ios: {
     ...config.ios,
+    buildNumber: String(BUILD_NUMBER),
     infoPlist: {
       ...config.ios.infoPlist,
       // Plain http to a laptop on the Wi-Fi, and its media — never in a store build.
@@ -16,6 +25,7 @@ module.exports = ({ config }) => ({
   },
   android: {
     ...config.android,
+    versionCode: BUILD_NUMBER,
     // The Firebase file comes from an EAS file secret on a build server; the
     // checked-out copy is for a laptop only and is not in git.
     googleServicesFile: process.env.GOOGLE_SERVICES_JSON || config.android.googleServicesFile,

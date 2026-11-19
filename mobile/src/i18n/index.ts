@@ -51,6 +51,12 @@ export function setLang(lang: Lang): void {
   SecureStore.setItemAsync(KEY, lang).catch(() => { /* the choice lasts this run */ });
 }
 
+/** Hear every change of language (the watch follows the phone's). */
+export function onLangChange(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
 export function tr(text: string, vars?: Record<string, string | number>): string {
   const sentence = current === "ne" ? ne[text] ?? text : text;
   if (!vars) return sentence;

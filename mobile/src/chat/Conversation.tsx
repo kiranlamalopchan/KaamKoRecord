@@ -31,7 +31,8 @@ import { Bubble, type Line, type Rect } from "./Bubble";
 import { MessageMenu, type MenuAction } from "./MessageMenu";
 import { loadDraft, saveDraft } from "./drafts";
 import { capture, pickDocument, pickFromLibrary, pickVideoToTrim, TooBig, type Picked } from "./pick";
-import { onChatEvent } from "./realtime";
+import { onChatEvent, setViewing } from "./realtime";
+import { TypingBubble, useTyping } from "./Typing";
 import { sendOutgoing, type Outgoing, type OutgoingKind } from "./send";
 import { MediaViewer, saveOrShare } from "./Viewer";
 import { canRecord, VoiceRecorder, type Recording } from "./Voice";
@@ -55,6 +56,12 @@ export function Conversation({ id }: { id: string }) {
   const changed = useChatChanged();
   const [focused, setFocused] = useState(false);
   useFocusEffect(useCallback(() => { setFocused(true); return () => setFocused(false); }, []));
+  // On screen: the server sends no notification for messages here (realtime.tsx).
+  useEffect(() => {
+    if (!focused) return;
+    setViewing(id);
+    return () => setViewing(null);
+  }, [focused, id]);
   const q = useConvo(id, focused);
   const page = q.data;
   const limits = page?.limits ?? DEFAULT_LIMITS;
@@ -79,7 +86,6 @@ export function Conversation({ id }: { id: string }) {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [viewer, setViewer] = useState<{ items: ChatAttachment[]; index: number } | null>(null);
-  const [typingNames, setTypingNames] = useState<Record<string, { name: string; until: number }>>({});
   const [farFromFoot, setFarFromFoot] = useState(false);
   const list = useRef<FlatList<Line>>(null);
   const input = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -108,20 +114,13 @@ export function Conversation({ id }: { id: string }) {
   const newest = page?.messages.at(-1)?.id;
   useEffect(() => { if (focused && newest) changed(); }, [focused, newest, changed]);
 
-  // ---- typing, from the realtime stream ----
-  useEffect(() => onChatEvent(event => {
-    if (event.type !== "typing" || event.conversation_id !== id || !event.username) return;
-    setTypingNames(was => ({ ...was, [event.username!]: { name: event.name || event.username!, until: Date.now() + 6000 } }));
-  }), [id]);
-  useEffect(() => {
-    if (!Object.keys(typingNames).length) return;
-    const timer = setTimeout(() => setTypingNames(was => Object.fromEntries(Object.entries(was).filter(([, v]) => v.until > Date.now()))), 1500);
-    return () => clearTimeout(timer);
-  }, [typingNames]);
-  const typing = useMemo(() => {
-    const live = Object.values(typingNames).filter(v => v.until > Date.now()).map(v => v.name);
-    return live.length ? live : (page?.typing ?? []);
-  }, [typingNames, page?.typing]);
+  // ---- typing, from the realtime stream (gone the moment their message lands) ----
+  const typers = useTyping()[id] ?? [];
+  const typing = typers.map(v => v.name);
+  /** A typer's face: from one of their messages on screen, else their initial. */
+  const faceOf = (username: string, name: string) =>
+    [...(page?.messages ?? []), ...older].find(m => m.sender?.username === username)?.sender
+    ?? { initial: (name || username).charAt(0).toUpperCase(), hue: 160, photo: null, is_live: false };
 
   // ---- the lines on screen: older pages, the newest page, what's on its way ----
   useEffect(() => {
@@ -419,6 +418,11 @@ export function Conversation({ id }: { id: string }) {
             scrollEventThrottle={64}
             onScrollToIndexFailed={() => {}}
             contentContainerStyle={[layout.column, { paddingTop: sp[3], paddingBottom: under.padTop + sp[3], flexGrow: 1 }]}
+            // The list is upside down, so its header is the foot: where Messenger's dots sit.
+            ListHeaderComponent={typers.length ? (
+              <TypingBubble names={typing}
+                people={typers.map(v => (!isGroup && person) || faceOf(v.username, v.name))} />
+            ) : undefined}
             ListFooterComponent={
               <View style={{ gap: sp[3], paddingBottom: sp[3], alignItems: "center" }}>
                 {header}

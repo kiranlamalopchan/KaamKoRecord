@@ -257,6 +257,7 @@ class Inbox(APIView):
                 Message.objects.filter(conversation_id__in=conversation_ids, body__icontains=query, unsent_at__isnull=True, event="")
                 .exclude(hidden_for__user=me).values_list("conversation_id", flat=True)
             )
+        stories = story_rings(me, [u.pk for u in others.values()])
         out = []
         for member in rows:
             conversation = member.conversation
@@ -273,11 +274,22 @@ class Inbox(APIView):
             unread = services.unread_count(member)
             if unread_only and unread < 1:
                 continue
-            out.append(conversation_json(request, member, last=lasts.get(member.last_id), unread=unread))
+            row = conversation_json(request, member, last=lasts.get(member.last_id), unread=unread)
+            other = others.get(conversation.pk) if conversation.kind == Conversation.Kind.DIRECT else None
+            # A ring round their photo while they have a story up: "unseen" or "seen".
+            row["story"] = stories.get(other.pk) if other else None
+            out.append(row)
             if scanning and len(out) >= 50:
                 break
         next_cursor = rows[-1].last_id if more and rows else None
-        return Response({"conversations": out, "next": next_cursor, "unread": total_unread(me)})
+        reply = {"conversations": out, "next": next_cursor, "unread": total_unread(me)}
+        if not archived and not before and not scanning:
+            # The "Archived chats" line at the foot of the list.
+            reply["archived"] = (
+                ConversationMember.objects.filter(user=me, archived_at__isnull=False)
+                .annotate(last_id=last).filter(last_id__isnull=False).count()
+            )
+        return Response(reply)
 
     def post(self, request):
         me = request.user
@@ -310,6 +322,20 @@ def total_unread(user):
             continue
         total += services.unread_count(member)
     return total
+
+
+def story_rings(viewer, user_ids):
+    """{user id: "unseen" | "seen"} for the people among `user_ids` with a story `viewer` may watch."""
+    from apps.stories.models import Story
+
+    if not user_ids:
+        return {}
+    live = Story.objects.for_viewer(viewer).filter(author_id__in=user_ids)
+    seen = set(live.filter(views__viewer=viewer).values_list("pk", flat=True))
+    rings = {}
+    for pk, author in live.values_list("pk", "author_id"):
+        rings[author] = "unseen" if pk not in seen or rings.get(author) == "unseen" else "seen"
+    return rings
 
 
 class InboxUnread(APIView):

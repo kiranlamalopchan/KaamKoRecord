@@ -3237,6 +3237,15 @@ a.avatar:hover { transform: scale(1.06); text-decoration: none; }
   vertical-align: 2px;
   white-space: nowrap;
 }
+.admin-badge .tick-badge { width: 1.35em; height: 1.35em; flex: none; }
+/* An admin's badge is gold. */
+.admin-badge:not(.admin-badge--moderator) { color: #e0a800; background: rgba(234, 179, 8, 0.16); }
+.admin-badge--icon:not(.admin-badge--moderator) { background: transparent; }
+/* Beside a name, only the tick badge; the word is on their profile. */
+.admin-badge--icon { gap: 0; padding: 0; margin-left: 4px; background: transparent; vertical-align: -3px; font-size: 13px; }
+/* A moderator: the same badge in blue, a step apart from an admin's green. */
+.admin-badge--moderator { color: #3b82f6; background: rgba(59, 130, 246, 0.14); }
+.admin-badge--icon.admin-badge--moderator { background: transparent; }
 .admin-badge svg { width: 12px; height: 12px; }
 .page-title .admin-badge, .profile-id__name .admin-badge, .profile__name .admin-badge { font-size: 12px; vertical-align: 5px; }
 /* The notice head is a flex row with its own gap, so the pill needs no
@@ -7446,6 +7455,18 @@ body::before {
 .blocked-row + .blocked-row { border-top: 1px solid var(--line); }
 .person-safety { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0; }
 .person-safety form { margin: 0; }
+/* Moderation: the admin's Make moderator line on a profile, and the reports queue. */
+.person-moderator { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin: var(--sp-3) 0; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--line); border-radius: var(--radius-md, 12px); background: var(--surface-2); }
+.report-tabs { display: flex; gap: var(--sp-2); margin: 0 0 var(--sp-3); }
+.report-row { padding: var(--sp-3) var(--sp-4); display: grid; gap: var(--sp-2); }
+.report-row + .report-row { border-top: 1px solid var(--line); }
+.report-row__head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.report-row__kind { font-weight: 700; }
+.report-row__reason { color: var(--danger); font-size: 14px; }
+.report-row__count { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--brand-soft); color: var(--brand-strong, var(--brand)); }
+.report-row__excerpt { margin: 0; padding: var(--sp-2) var(--sp-3); border-left: 3px solid var(--line); background: var(--surface-2); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.report-row__actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.report-row__actions form { margin: 0; }
 .story-viewer__react { flex-wrap: wrap; align-items: center; }
 .story-viewer__report {
   margin-left: 6px;

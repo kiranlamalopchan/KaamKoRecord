@@ -10,6 +10,7 @@
  */
 
 import { api, type FilePart } from "./client";
+import { Said } from "@/api/errors";
 
 /** Files over this go in pieces. Well under the host's limit, with room for the multipart overhead. */
 export const CHUNK_AT = 60 * 1024 * 1024;
@@ -49,7 +50,7 @@ function newId(): string {
  */
 export async function uploadInPieces(part: FilePart, size: number, onProgress?: (sent: number) => void): Promise<string> {
   const FS = fs();
-  if (!FS) throw new Error("This build can't send a video that large.");
+  if (!FS) throw new Said("This build can't send a video that large.");
   const uploadId = newId();
   const total = Math.max(1, Math.ceil(size / PIECE));
   for (let index = 0; index < total; index++) {

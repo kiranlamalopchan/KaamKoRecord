@@ -10,6 +10,7 @@ import { Select } from "@/ui/Select";
 import { SkeletonRows } from "@/ui/Skeleton";
 import { native } from "@/ui/native";
 import { sp, useTheme } from "@/ui/theme";
+import { errorMessage } from "@/api/errors";
 
 export default function FestivalSettingsPage() {
   const { me } = useSession();
@@ -43,7 +44,7 @@ function Editor({ data, username }: { data: FestivalSettings; username: string }
       if (asset.fileSize && asset.fileSize > 8 * 1024 * 1024) { setError("Choose a banner image smaller than 8 MB."); return; }
       const file: FilePart = { uri: asset.uri, name, type };
       setImage({ uri: asset.uri, file }); setRemove(false);
-    } catch (e: any) { setError(e?.message || "That image couldn't be selected."); }
+    } catch (e: any) { setError(errorMessage(e)); }
   };
   const save = async () => {
     setBusy(true); setError(""); setSaved(false);
@@ -52,7 +53,7 @@ function Editor({ data, username }: { data: FestivalSettings; username: string }
       client.setQueryData(["festival-settings", username], result);
       await client.invalidateQueries({ queryKey: ["home"] });
       setGreeting(result.greeting); setDescription(result.description); setImage(null); setRemove(false); setSaved(true);
-    } catch (e: any) { setError(e?.message || "The banner couldn't be saved."); }
+    } catch (e: any) { setError(errorMessage(e)); }
     finally { setBusy(false); }
   };
   const changed = () => setSaved(false);

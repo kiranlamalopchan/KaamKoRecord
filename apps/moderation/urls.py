@@ -12,4 +12,6 @@ urlpatterns = [
     path("blocked/", views.blocked, name="blocked"),
     path("block/<str:username>/", views.block, name="block"),
     path("unblock/<str:username>/", views.unblock, name="unblock"),
+    path("reports/", views.reports, name="reports"),
+    path("moderator/<str:username>/", views.moderator, name="moderator"),
 ]

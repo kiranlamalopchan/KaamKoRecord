@@ -12,6 +12,7 @@ from django.core.paginator import Paginator
 from mywork.formatting import relative_time as ago
 
 from apps.accounts.models import Profile
+from apps.moderation.roles import badge, is_moderator
 from apps.holidays.whereabouts import guess_state
 from apps.noticeboard.models import Emoji, Notice
 from apps.noticeboard.presentation import COMMENTS_SHOWN, REPLIES_SHOWN, fold_thread as _fold
@@ -60,6 +61,7 @@ def person(request, user, viewer=None):
         "is_me": viewer is not None and user.pk == viewer.pk,
         # The people who run the board wear a mark beside their name.
         "is_admin": bool(user.is_staff),
+        "is_moderator": badge(user) == "moderator",
     }
 
 
@@ -76,6 +78,8 @@ def me(request, user):
         "phone": profile.phone,
         "address": profile.address,
         "is_staff": user.is_staff,
+        # Admins and the moderators they chose: the Reports screen is theirs.
+        "is_moderator": is_moderator(user),
         "has_password": user.has_usable_password(),
         "social_providers": list(user.social_identities.values_list('provider', flat=True)),
         "can_manage_festival": can_manage_festival(user),

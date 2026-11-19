@@ -243,7 +243,7 @@ function BubbleImpl({ line, group, firstOfRun, lastOfRun, showStatus, onLongPres
             </>
           )}
           {line.unsent ? <Text style={{ color: ink, fontStyle: "italic", fontSize: 15, opacity: 0.8 }}>{tr("Message removed")}</Text>
-            : line.body ? <Text selectable style={[styles.body, { color: ink }, mediaOnly ? null : (photos.length || video) ? { marginTop: 6 } : null]}>{line.body}</Text> : null}
+            : line.body ? <Text style={[styles.body, { color: ink }, mediaOnly ? null : (photos.length || video) ? { marginTop: 6 } : null]}>{line.body}</Text> : null}
           {pending && line.progress !== undefined && line.progress < 1 && (line.attachments.length || line.localFiles?.length) ? (
             <View style={[styles.progressTrack, { backgroundColor: mine ? "rgba(255,255,255,0.3)" : t.line }]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: Math.round((line.progress || 0) * 100) }}>
               <View style={{ width: `${Math.round((line.progress || 0) * 100)}%`, height: "100%", backgroundColor: mine ? t.brandInk : t.brand }} />

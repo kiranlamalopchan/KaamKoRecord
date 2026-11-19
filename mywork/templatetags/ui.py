@@ -116,3 +116,10 @@ def page_link(context, number):
         params["page"] = number
     query = params.urlencode()
     return "?" + query if query else request.path
+
+
+@register.filter
+def name_badge(user):
+    """"admin", "moderator" or "" — the mark templates/accounts/_admin_badge.html draws."""
+    from apps.moderation.roles import badge
+    return badge(user) or ""

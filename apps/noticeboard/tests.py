@@ -42,10 +42,12 @@ class NoticeBoardTests(TestCase):
         self.sam.is_staff = True
         self.sam.save(update_fields=["is_staff"])
         resp = self.client.get(reverse("notices:board"))
-        self.assertContains(resp, 'class="admin-badge"', count=1)
-        # And on their page, next to the name.
+        # Beside their notice only the shield, named for a pointer and a screen reader.
+        self.assertContains(resp, 'class="admin-badge admin-badge--icon"', count=1)
+        self.assertContains(resp, 'aria-label="Admin"', count=1)
+        # On their page, next to the name, the word itself.
         resp = self.client.get(reverse("notices:person", args=["sam"]))
-        self.assertContains(resp, 'class="admin-badge"')
+        self.assertContains(resp, 'class="admin-badge" title="Admin">')
 
     def test_the_hub_carries_a_thought_and_a_laugh_that_change_with_the_day(self):
         from datetime import date

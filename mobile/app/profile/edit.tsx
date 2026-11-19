@@ -18,6 +18,7 @@ import { goBack } from "@/nav/paths";
 import { notify } from "@/ui/confirm";
 import { sp, useTheme } from "@/ui/theme";
 import { fail, success } from "@/ui/haptics";
+import { errorMessage } from "@/api/errors";
 
 const STATES = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"];
 
@@ -52,7 +53,7 @@ export default function EditProfile() {
       goBack();
     } catch (e: any) {
       fail();
-      setError(e?.message || "That couldn't be saved.");
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -62,7 +63,7 @@ export default function EditProfile() {
     try {
       setMe(await api.setHolidayState(state));
     } catch (e: any) {
-      notify("Couldn't change that", e?.message || "");
+      notify("Couldn't change that", errorMessage(e));
     }
   };
 

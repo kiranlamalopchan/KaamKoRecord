@@ -20,7 +20,7 @@ import { UpdateRequired } from "@/ui/UpdateRequired";
 import { useRequiredUpdate } from "@/update/required";
 import { useNotificationNavigation } from "@/push/useNotificationNavigation";
 import { nativeOrNull } from "@/ui/native";
-import { notifications } from "@/push/register";
+import { notifications, whileOpen } from "@/push/register";
 import { loadLang, useT } from "@/i18n";
 import { registerClockActions } from "@/roster/reminders";
 import { RosterAlarms } from "@/roster/RosterAlarms";
@@ -53,11 +53,7 @@ nativeOrNull(() => require("expo-splash-screen"))?.preventAutoHideAsync?.()?.cat
 
 // Where the phone can be buzzed at all (not Expo Go on Android).
 notifications()?.setNotificationHandler({
-  handleNotification: async (notification) => notification.request.content.data?.status
-    // The running shift is a standing line for the lock screen. With the app
-    // open it is already on the clock in front of you: no banner, no sound.
-    ? { shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }
-    : { shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: true },
+  handleNotification: async (notification) => whileOpen(notification.request.content.data),
 });
 
 function Guard() {

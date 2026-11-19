@@ -244,7 +244,7 @@ class HomeTests(ApiTestCase):
         friends = self.api("get", "home").json()["friends"]
         self.assertEqual((friends["total"], friends["more"], friends["summary"]), (1, 0, "sam"))
         self.assertEqual([p["username"] for p in friends["people"]], ["sam"])
-        self.assertEqual(set(friends["people"][0]), {"username", "name", "initial", "hue", "photo", "is_live", "is_me", "is_admin"})
+        self.assertEqual(set(friends["people"][0]), {"username", "name", "initial", "hue", "photo", "is_live", "is_me", "is_admin", "is_moderator"})
 
 
     def test_the_hub_says_what_a_public_holiday_pays_at_your_job(self):
@@ -330,6 +330,27 @@ class BoardTests(ApiTestCase):
         self.assertEqual(data["notice_count"], 1)
         self.assertEqual(data["received"], 1)
         self.assertEqual(data["notices"][0]["my_emoji"], "👍")
+
+    def test_a_person_page_says_where_you_stand(self):
+        from apps.accounts.models import FriendRequest, Friendship
+        mo = User.objects.create_user("mo", password="x")
+        page = lambda: self.api("get", "person", args=["sam"]).json()
+        self.assertEqual(page()["friendship"], "none")
+        self.assertIsNone(page()["story"])
+        mine = FriendRequest.objects.create(from_user=self.kiran, to_user=self.sam)
+        self.assertEqual((page()["friendship"], page()["friend_request"]), ("sent", mine.pk))
+        mine.delete()
+        theirs = FriendRequest.objects.create(from_user=self.sam, to_user=self.kiran)
+        self.assertEqual((page()["friendship"], page()["friend_request"]), ("received", theirs.pk))
+        theirs.accept()
+        # Mo is a friend of both: one mutual friend, out of Sam's two.
+        Friendship.befriend(self.sam, mo)
+        Friendship.befriend(self.kiran, mo)
+        data = page()
+        self.assertEqual(data["friendship"], "friends")
+        self.assertEqual((data["friends_count"], data["mutual_count"]), (2, 1))
+        self.assertEqual([p["username"] for p in data["mutual"]], ["mo"])
+        self.assertEqual(self.api("get", "person", args=["kiran"]).json()["friendship"], "me")
 
 
 class VisibilityApiTests(ApiTestCase):
@@ -562,6 +583,18 @@ class NotificationTests(ApiTestCase):
         self.assertEqual(sent["badge"], 1)
         self.assertTrue(sent["data"]["url"].startswith("/notifications/"))
         self.assertIsNotNone(Device.objects.get().last_sent_at)
+
+    def test_every_phone_gets_its_own_standard_sound(self):
+        # Even a phone still saying it carries a tone of ours (an earlier test
+        # build) is sent the phone's own sound, on the one channel.
+        self.assertEqual(self.api("post", "devices", {"token": "ExponentPushToken[new]", "platform": "android", "tone": "kaamkorecord.wav"}).status_code, 201)
+        Device.objects.filter(expo_token="ExponentPushToken[new]").update(user=self.sam)
+        Device.store(self.sam, "ExponentPushToken[old]", "ios")
+        with patch("apps.notifications.push.requests.post") as post:
+            post.return_value.json.return_value = {"data": [{"status": "ok"}] * 2}
+            self.api("post", "notices", {"body": "Hello phones"})
+        sent = {m["to"]: (m["sound"], m["channelId"]) for m in post.call_args.kwargs["json"]}
+        self.assertEqual(sent, {"ExponentPushToken[new]": ("default", "default"), "ExponentPushToken[old]": ("default", "default")})
 
     def test_a_phone_that_lost_the_app_is_forgotten(self):
         Device.store(self.sam, "ExponentPushToken[gone]", "ios")
@@ -823,6 +856,23 @@ class TimesheetTests(ApiTestCase):
         self.assertIsNone(state["limit"])
         self.assertIsNone(state["tally"])
 
+    def test_every_clock_move_tells_the_persons_phones(self):
+        # The watch, the website or another phone moves the clock: every
+        # phone of theirs hears "clock.updated" and fetches it again.
+        from apps.timeclock.models import Shift
+        with patch("apps.chat.realtime.publish") as publish, self.captureOnCommitCallbacks(execute=True):
+            self.api("post", "clock_in", {"workplace": self.cafe.pk})
+            self.api("post", "start_break")
+            self.api("post", "end_break")
+            self.api("post", "clock_out")
+        moves = [c for c in publish.call_args_list if c.args[1] == "clock.updated"]
+        self.assertGreaterEqual(len(moves), 4)
+        self.assertTrue(all(c.args[0] == [self.kiran.pk] for c in moves))
+        # Removing a shift (and its breaks with it) is a move too, and doesn't trip on the gone shift.
+        with patch("apps.chat.realtime.publish") as publish:
+            Shift.objects.filter(user=self.kiran).delete()
+        self.assertTrue(any(c.args[1] == "clock.updated" for c in publish.call_args_list))
+
     def test_clock_in_break_and_out(self):
         from apps.timeclock.models import Shift
 
@@ -872,6 +922,88 @@ class TimesheetTests(ApiTestCase):
         self.shop.overtime_after_hours = 8
         self.shop.overtime_multiplier = 2
         self.assertEqual(self.shop.gross_for_span(10, date(2026, 11, 21), self.kiran), 320)
+
+    def test_double_time_after_the_first_hours_of_overtime(self):
+        # The award in the request: 12 hours = 8 normal + 2 at 1.5x + 2 at double.
+        self.shop.hourly_rate = 30
+        self.shop.overtime_after_hours = 8
+        self.shop.overtime_multiplier = 1.5
+        self.shop.double_time_after_hours = 10
+        self.shop.double_time_multiplier = 2
+        weekday = date(2026, 11, 18)  # a Wednesday
+        self.assertEqual(self.shop.shift_hours(12), (8, 2, 2))
+        self.assertEqual(self.shop.gross_for_span(12, weekday, self.kiran), 8 * 30 + 2 * 45 + 2 * 60)
+        self.assertEqual(self.shop.shift_hours(9), (8, 1, 0))
+        self.assertEqual(self.shop.shift_hours(7.5), (7.5, 0, 0))
+        # Blank double time: one overtime rate for every extra hour, as before.
+        self.shop.double_time_after_hours = None
+        self.assertEqual(self.shop.shift_hours(12), (8, 4, 0))
+        self.assertEqual(self.shop.gross_for_span(12, weekday, self.kiran), 8 * 30 + 4 * 45)
+
+    def test_a_weekend_shift_pays_whichever_rate_is_higher(self):
+        self.shop.hourly_rate = 20
+        self.shop.sunday_multiplier = 1.75
+        self.shop.overtime_after_hours = 8
+        self.shop.overtime_multiplier = 1.5
+        self.shop.double_time_after_hours = 10
+        sunday = date(2026, 11, 22)
+        # 8 h at Sunday 1.75, 2 h at Sunday 1.75 (beats 1.5), 2 h at double.
+        self.assertEqual(self.shop.gross_for_span(12, sunday, self.kiran), 8 * 35 + 2 * 35 + 2 * 40)
+
+    def test_double_time_is_set_and_checked_through_the_app(self):
+        base = {"name": self.shop.name, "limit_period": "FORTNIGHT", "week_starts_on": 0, "fortnight_starts_on": 3,
+                "fortnight_phase": "this", "month_starts_on": 1, "hourly_rate": "30"}
+        refused = self.api("patch", "workplace", {**base, "overtime_after_hours": "8", "double_time_after_hours": "8"}, args=[self.shop.pk])
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("after overtime", refused.json()["fields"]["double_time_after_hours"][0])
+        refused = self.api("patch", "workplace", {**base, "overtime_after_hours": "", "double_time_after_hours": "10"}, args=[self.shop.pk])
+        self.assertIn("overtime starts first", refused.json()["fields"]["double_time_after_hours"][0])
+        saved = self.api("patch", "workplace", {**base, "overtime_after_hours": "8", "overtime_multiplier": "1.5",
+                                                "double_time_after_hours": "10", "double_time_multiplier": "2"}, args=[self.shop.pk])
+        self.assertEqual(saved.status_code, 200, saved.content)
+        self.shop.refresh_from_db()
+        self.assertEqual((float(self.shop.double_time_after_hours), float(self.shop.double_time_multiplier)), (10, 2))
+        listed = next(w for w in self.api("get", "workplaces").json()["workplaces"] if w["id"] == self.shop.pk)
+        self.assertEqual((listed["double_time_after_hours"], listed["double_time_multiplier"]), (10.0, 2.0))
+        # An older app that never heard of double time leaves it as it was.
+        self.api("patch", "workplace", {**base, "overtime_after_hours": "8"}, args=[self.shop.pk])
+        self.shop.refresh_from_db()
+        self.assertEqual(float(self.shop.double_time_after_hours), 10)
+        # Cleared on purpose: one overtime rate again.
+        self.api("patch", "workplace", {**base, "overtime_after_hours": "8", "double_time_after_hours": ""}, args=[self.shop.pk])
+        self.shop.refresh_from_db()
+        self.assertIsNone(self.shop.double_time_after_hours)
+
+    def test_blank_workplace_multipliers_keep_the_saved_rates(self):
+        self.shop.saturday_multiplier = 1.25
+        self.shop.double_time_multiplier = 2.25
+        self.shop.save(update_fields=["saturday_multiplier", "double_time_multiplier"])
+        saved = self.api("patch", "workplace", {
+            "name": self.shop.name, "hourly_rate": "30", "limit_period": "FORTNIGHT",
+            "week_starts_on": 0, "fortnight_starts_on": 3, "fortnight_phase": "this",
+            "month_starts_on": 1, "saturday_multiplier": "", "sunday_multiplier": None,
+            "public_holiday_multiplier": "", "overtime_multiplier": "", "double_time_multiplier": "",
+        }, args=[self.shop.pk])
+
+        self.assertEqual(saved.status_code, 200, saved.content)
+        self.shop.refresh_from_db()
+        self.assertEqual(float(self.shop.hourly_rate), 30)
+        self.assertEqual(float(self.shop.saturday_multiplier), 1.25)
+        self.assertEqual(float(self.shop.sunday_multiplier), 1)
+        self.assertEqual(float(self.shop.public_holiday_multiplier), 1)
+        self.assertEqual(float(self.shop.overtime_multiplier), 1.5)
+        self.assertEqual(float(self.shop.double_time_multiplier), 2.25)
+
+    def test_new_workplace_with_blank_multipliers_uses_defaults(self):
+        created = self.api("post", "workplaces", {
+            "name": "Bakery", "limit_period": "FORTNIGHT", "week_starts_on": 0,
+            "fortnight_starts_on": 3, "fortnight_phase": "this", "month_starts_on": 1,
+            "overtime_multiplier": "", "double_time_multiplier": None,
+        })
+
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(created.json()["overtime_multiplier"], 1.5)
+        self.assertEqual(created.json()["double_time_multiplier"], 2)
 
     def _shift(self, days_ago, hours=8, workplace=None):
         from datetime import datetime, time, timedelta

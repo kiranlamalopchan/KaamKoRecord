@@ -9,6 +9,7 @@ import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
 import { nativeOrNull } from "@/ui/native";
+import { Said } from "@/api/errors";
 
 const TOKEN_KEY = "mywork.bio.token";
 const USER_KEY = "mywork.bio.user";
@@ -68,7 +69,7 @@ export async function disarmBiometric(): Promise<void> {
 /** The phone's prompt: true when the person was recognised. */
 export async function checkBiometric(promptMessage: string, cancelLabel = "Cancel"): Promise<boolean> {
   const LA = localAuth();
-  if (!LA) throw new Error("This phone can't sign you in that way.");
+  if (!LA) throw new Said("This phone can't sign you in that way.");
   const result = await LA.authenticateAsync({ promptMessage, cancelLabel, disableDeviceFallback: false });
   return result.success;
 }
@@ -79,6 +80,6 @@ export async function checkBiometric(promptMessage: string, cancelLabel = "Cance
  */
 export async function unlockWithBiometric(): Promise<string | null> {
   const token = await SecureStore.getItemAsync(TOKEN_KEY);
-  if (!token) throw new Error("Sign in with your password first, then turn this on.");
+  if (!token) throw new Said("Sign in with your password first, then turn this on.");
   return (await checkBiometric("Sign in to KaamKoRecord", "Use password")) ? token : null;
 }

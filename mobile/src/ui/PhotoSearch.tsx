@@ -23,6 +23,7 @@ import { Button, Card, Chip, Empty, Input } from "./index";
 import { SkeletonRows } from "./Skeleton";
 import { openPdf } from "./pdf";
 import { alpha, radius, sp, useTheme } from "./theme";
+import { errorMessage } from "@/api/errors";
 
 type Row = PhotoRow & { key: number };
 
@@ -48,7 +49,7 @@ export function PhotoSearch({ catalogueId }: { catalogueId?: number }) {
         result = await ImagePicker.launchImageLibraryAsync(options);
       }
     } catch (e: any) {
-      setError(e?.message || "That couldn't be opened.");
+      setError(errorMessage(e));
       return;
     }
     if (!result || result.canceled) return;
@@ -69,7 +70,7 @@ export function PhotoSearch({ catalogueId }: { catalogueId?: number }) {
       void removeDraftMedia(selected);
       success();
     } catch (e: any) {
-      setError(e?.message || "The photo couldn't be read.");
+      setError(errorMessage(e));
     } finally {
       setReading(false);
     }
@@ -88,7 +89,7 @@ export function PhotoSearch({ catalogueId }: { catalogueId?: number }) {
       await openPdf(plu.photoPdfUrl(catalogueId), "picking-list.pdf", { rows: rows.map((r) => ({ plu_no: r.item.plu_no, line: r.line })) });
       success();
     } catch (e: any) {
-      notify("No PDF", e?.message || "");
+      notify("No PDF", errorMessage(e));
     } finally {
       setSaving(false);
     }

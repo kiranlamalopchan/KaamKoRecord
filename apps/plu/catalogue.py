@@ -16,6 +16,8 @@ from .models import Catalogue, CatalogueUpload, PluItem
 MAX_BYTES = 10 * 1024 * 1024
 MAX_ROWS = 20000
 SEARCH_PAGE_SIZE = 5
+LIST_PAGE_SIZE = 30
+MAX_COLUMNS = 50
 UPLOAD_TTL = timedelta(hours=1)
 
 
@@ -82,12 +84,55 @@ def configuration(catalogue):
         return None
     return {"id": catalogue.pk, "name": catalogue.name, "headers": catalogue.headers,
             "title_column": catalogue.title_column, "description_column": catalogue.description_column,
-            "code_column": catalogue.code_column, "search_columns": catalogue.search_columns}
+            "code_column": catalogue.code_column, "search_columns": catalogue.search_columns,
+            "track_stock": catalogue.track_stock}
 
 
 def item_data(item):
     return {"id": item.pk, "catalogue_id": item.catalogue_id, "title": item.title, "description": item.description,
-            "code": item.code, "fields": item.fields}
+            "code": item.code, "fields": item.fields, "stock": item.stock}
+
+
+def clean_name(name):
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
+        raise CatalogueProblem("Give your catalogue a name of up to 100 characters.")
+    return name.strip()
+
+
+def clean_headers(headers):
+    if not isinstance(headers, list) or not headers:
+        raise CatalogueProblem("Add at least one column.")
+    cleaned = [h.strip() if isinstance(h, str) else "" for h in headers]
+    if any(not h or len(h) > 100 for h in cleaned):
+        raise CatalogueProblem("Give every column a name of up to 100 characters.")
+    if len(cleaned) > MAX_COLUMNS or len({h.casefold() for h in cleaned}) != len(cleaned):
+        raise CatalogueProblem("Use up to 50 columns, each with a different name.")
+    return cleaned
+
+
+def plu_number(code_column, code):
+    """Numeric PLU matching stays available for a catalogue whose code column is plu_no."""
+    if code_column.casefold() in ("plu_no", "plu") and code.isdigit() and int(code) <= 2147483647:
+        return int(code)
+    return None
+
+
+@transaction.atomic
+def create_catalogue(user, data):
+    """A catalogue made in the app: a name and the columns, items added one at a time."""
+    if not isinstance(data, dict):
+        raise CatalogueProblem("Give your catalogue a name and its columns.")
+    get_user_model().objects.select_for_update().get(pk=user.pk)
+    name = clean_name(data.get("name"))
+    if catalogues_for(user).filter(name__iexact=name).exists():
+        raise CatalogueProblem("You already have a catalogue with that name.")
+    headers = clean_headers(data.get("headers"))
+    title = data.get("title_column") or headers[0]
+    code = data.get("code_column") or ""
+    if title not in headers or (code and code not in headers) or (code and code == title):
+        raise CatalogueProblem("Choose the name and barcode columns from your columns.")
+    return Catalogue.objects.create(owner=user, name=name, headers=headers, title_column=title,
+        description_column="", code_column=code, search_columns=headers, track_stock=data.get("track_stock") is True)
 
 
 @transaction.atomic
@@ -96,28 +141,140 @@ def update_catalogue(user, catalogue_id, changes):
         raise CatalogueProblem("Provide catalogue settings to update.")
     get_user_model().objects.select_for_update().get(pk=user.pk)
     chosen = select_catalogue(user, catalogue_id)
-    name = changes.get("name", chosen.name)
-    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
-        raise CatalogueProblem("Give your catalogue a name of up to 100 characters.")
-    if catalogues_for(user).exclude(pk=chosen.pk).filter(name__iexact=name.strip()).exists():
+    name = clean_name(changes.get("name", chosen.name))
+    if catalogues_for(user).exclude(pk=chosen.pk).filter(name__iexact=name).exists():
         raise CatalogueProblem("You already have a catalogue with that name.")
-    selected = changes.get("search_columns", chosen.search_columns)
-    if "search_columns" in changes and (not isinstance(selected, list) or not selected or any(h not in chosen.headers for h in selected)):
+    headers = chosen.headers
+    added = []
+    if "headers" in changes:
+        # Columns can be added, never taken away: every item keeps all it has.
+        headers = clean_headers(changes["headers"])
+        if any(h not in headers for h in chosen.headers):
+            raise CatalogueProblem("Columns can be added but not removed.")
+        added = [h for h in headers if h not in chosen.headers]
+    selected = changes.get("search_columns", chosen.search_columns + added)
+    if not isinstance(selected, list) or not selected or any(h not in headers for h in selected):
         raise CatalogueProblem("Choose at least one searchable column from this catalogue.")
     selected = list(dict.fromkeys(selected))
-    if selected != chosen.search_columns:
-        batch = []
-        for item in chosen.items.all().iterator(chunk_size=500):
+    code = changes.get("code_column", chosen.code_column) or ""
+    if code and (code not in headers or code == chosen.title_column):
+        raise CatalogueProblem("Choose a barcode column other than the name column.")
+
+    if selected != chosen.search_columns or code != chosen.code_column:
+        items = list(chosen.items.all())
+        if code != chosen.code_column:
+            seen = {}
+            for item in items:
+                value = str(item.fields.get(code, "")).strip() if code else ""
+                if len(value) > 100:
+                    raise CatalogueProblem("Barcodes can have up to 100 characters. Choose another column.")
+                if value and value in seen:
+                    raise CatalogueProblem(f"The code {value!r} appears more than once in that column. Choose another column.")
+                seen[value] = True
+                item.code, item.plu_no = value, plu_number(code, value)
+        numbers = [i.plu_no for i in items if i.plu_no is not None]
+        if len(numbers) != len(set(numbers)):
+            raise CatalogueProblem("Two PLU codes have the same numeric value. Choose another column.")
+        for item in items:
             item.search_text = "\n".join(str(item.fields.get(h, "")) for h in selected)
-            batch.append(item)
-            if len(batch) == 500:
-                PluItem.objects.bulk_update(batch, ["search_text"])
-                batch = []
-        if batch:
-            PluItem.objects.bulk_update(batch, ["search_text"])
-    chosen.name, chosen.search_columns = name.strip(), selected
-    chosen.save(update_fields=["name", "search_columns"])
+        PluItem.objects.bulk_update(items, ["search_text", "code", "plu_no"], batch_size=500)
+    track = changes.get("track_stock", chosen.track_stock)
+    if not isinstance(track, bool):
+        raise CatalogueProblem("Choose whether to count stock.")
+    chosen.name, chosen.headers, chosen.search_columns, chosen.code_column, chosen.track_stock = name, headers, selected, code, track
+    chosen.save(update_fields=["name", "headers", "search_columns", "code_column", "track_stock"])
     return chosen
+
+
+def item_list(user, catalogue_id):
+    chosen = select_catalogue(user, catalogue_id)
+    return chosen, chosen.items.order_by("title", "pk")
+
+
+@transaction.atomic
+def save_item(user, catalogue_id, values, item_id=None):
+    """Add one item, or change one, from {column: value}. Columns left out keep what they had."""
+    if not isinstance(values, dict):
+        raise CatalogueProblem("Fill in the item's details.")
+    chosen = Catalogue.objects.select_for_update().filter(owner=user, pk=catalogue_id).first()
+    if chosen is None:
+        raise Http404("Catalogue not found.")
+    item = None
+    if item_id is not None:
+        item = chosen.items.filter(pk=item_id).first()
+        if item is None:
+            raise Http404("Item not found.")
+    fields = dict(item.fields) if item else {}
+    for header in chosen.headers:
+        value = values.get(header, fields.get(header, ""))
+        if value is None:
+            value = ""
+        if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+            raise CatalogueProblem(f"Enter {header} as text.")
+        value = str(value).strip()
+        if len(value) > 10000:
+            raise CatalogueProblem(f"{header} can have up to 10,000 characters.")
+        fields[header] = value
+    title = fields.get(chosen.title_column, "")
+    if not title:
+        raise CatalogueProblem(f"Enter the {chosen.title_column}.")
+    code = fields.get(chosen.code_column, "") if chosen.code_column else ""
+    if len(code) > 100:
+        raise CatalogueProblem("Barcodes can have up to 100 characters.")
+    others = chosen.items.exclude(pk=item.pk) if item else chosen.items.all()
+    if code and others.filter(code=code).exists():
+        raise CatalogueProblem(f"Another item already has the code {code}.")
+    number = plu_number(chosen.code_column, code) if code else None
+    if number is not None and others.filter(plu_no=number).exists():
+        raise CatalogueProblem(f"Another item already has the PLU {number}.")
+    item = item or PluItem(catalogue=chosen)
+    item.fields, item.title, item.code, item.plu_no = fields, title, code, number
+    item.description = (fields.get(chosen.description_column) if chosen.description_column else "") or title
+    item.search_text = "\n".join(str(fields.get(h, "")) for h in chosen.search_columns)
+    item.save()
+    return item
+
+
+MAX_STOCK = 1_000_000_000
+
+
+def whole_number(value, problem):
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise CatalogueProblem(problem)
+    try:
+        number = int(str(value).strip())
+    except ValueError:
+        raise CatalogueProblem(problem)
+    if abs(number) > MAX_STOCK:
+        raise CatalogueProblem(problem)
+    return number
+
+
+@transaction.atomic
+def change_stock(user, item_id, change=None, count=None):
+    """Add to or take from an item's stock, or set it after a count. Two phones
+    scanning the same item at once both count: the row is locked while it changes."""
+    item = items_for(user).select_for_update().select_related("catalogue").filter(pk=item_id).first()
+    if item is None:
+        raise Http404("Item not found.")
+    if not item.catalogue.track_stock:
+        raise CatalogueProblem("Turn on stock counting for this catalogue first.")
+    if count not in (None, ""):
+        item.stock = whole_number(count, "Enter the stock as a whole number.")
+    else:
+        item.stock += whole_number(change, "Enter the change as a whole number.")
+    if abs(item.stock) > MAX_STOCK:
+        raise CatalogueProblem("That stock is too large.")
+    item.save(update_fields=["stock"])
+    return item
+
+
+@transaction.atomic
+def delete_item(user, item_id):
+    item = items_for(user).select_for_update().filter(pk=item_id).first()
+    if item is None:
+        raise Http404("Item not found.")
+    item.delete()
 
 
 @transaction.atomic

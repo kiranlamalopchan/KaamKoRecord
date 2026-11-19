@@ -3,6 +3,7 @@ import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import ForgotPassword from "../../app/(auth)/forgot-password";
 import Login from "../../app/(auth)/login";
 import { auth } from "@/api";
+import { ApiError } from "@/api/client";
 
 const mockPush = jest.fn();
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
@@ -69,7 +70,7 @@ test("email validation errors stay beside the field and allow correction", async
 });
 
 test("unavailable delivery is explained without claiming a link was sent", async () => {
-  jest.mocked(auth.requestPasswordReset).mockRejectedValueOnce(new Error("Email reset is not available yet. Please ask an admin for a reset link."));
+  jest.mocked(auth.requestPasswordReset).mockRejectedValueOnce(new ApiError(503, "Email reset is not available yet. Please ask an admin for a reset link."));
   const screen = await render(<ForgotPassword />);
   await fireEvent.changeText(screen.getByTestId("reset-email"), "user@example.com");
   await fireEvent.press(screen.getByTestId("request-reset"));

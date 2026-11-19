@@ -14,6 +14,7 @@
 import { api, formWith, type FilePart } from "@/api/client";
 import { sizeOf } from "@/api/chunked";
 import type { ConvoMessage } from "@/api/types";
+import { Said } from "@/api/errors";
 
 export type OutgoingKind = "text" | "photos" | "video" | "audio" | "file";
 
@@ -53,7 +54,7 @@ function newUploadId(): string {
 /** Send `part` in pieces to uploads/, resuming from what the server already has. */
 export async function uploadResumable(part: FilePart, size: number, uploadId: string, onProgress: (fraction: number) => void): Promise<void> {
   const FS = fs();
-  if (!FS) throw new Error("This build can't send a file that large.");
+  if (!FS) throw new Said("This build can't send a file that large.");
   let have = 0;
   try {
     have = (await api<{ bytes: number }>("uploads/", { query: { upload_id: uploadId } })).bytes;

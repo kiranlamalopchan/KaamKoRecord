@@ -26,9 +26,60 @@ class Search(PrivateCatalogueView):
         return Response(meta)
 
 
+def problem(error):
+    return ValidationError({"detail": str(error)})
+
+
 class Detail(PrivateCatalogueView):
     def get(self, request, pk):
         return Response(catalogue.item_data(get_object_or_404(catalogue.items_for(request.user), pk=pk)))
+
+    def patch(self, request, pk):
+        item = get_object_or_404(catalogue.items_for(request.user), pk=pk)
+        try:
+            item = catalogue.save_item(request.user, item.catalogue_id, request.data.get("fields"), item_id=item.pk)
+        except catalogue.CatalogueProblem as error:
+            raise problem(error)
+        return Response(catalogue.item_data(item))
+
+    def delete(self, request, pk):
+        catalogue.delete_item(request.user, pk)
+        return Response(status=204)
+
+
+class Stock(PrivateCatalogueView):
+    """{"change": 1} or {"change": -1} for a scan, {"count": 12} after counting."""
+    def post(self, request, pk):
+        try:
+            item = catalogue.change_stock(request.user, pk, change=request.data.get("change"), count=request.data.get("count"))
+        except catalogue.CatalogueProblem as error:
+            raise problem(error)
+        return Response(catalogue.item_data(item))
+
+
+class Create(PrivateCatalogueView):
+    def post(self, request):
+        try:
+            chosen = catalogue.create_catalogue(request.user, request.data)
+        except catalogue.CatalogueProblem as error:
+            raise problem(error)
+        return Response({**catalogue.configuration(chosen), "count": 0}, status=201)
+
+
+class Items(PrivateCatalogueView):
+    """A catalogue's items as a table, a page at a time, and adding one."""
+    def get(self, request, pk):
+        chosen, items = catalogue.item_list(request.user, pk)
+        page, meta = serialize.page_of(request, items, catalogue.LIST_PAGE_SIZE)
+        meta.update(results=[catalogue.item_data(i) for i in page], catalogue=catalogue.configuration(chosen))
+        return Response(meta)
+
+    def post(self, request, pk):
+        try:
+            item = catalogue.save_item(request.user, pk, request.data.get("fields"))
+        except catalogue.CatalogueProblem as error:
+            raise problem(error)
+        return Response(catalogue.item_data(item), status=201)
 
 
 class Manage(PrivateCatalogueView):

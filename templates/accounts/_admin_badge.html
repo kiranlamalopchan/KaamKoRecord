@@ -1,8 +1,9 @@
 {% load ui %}
 {% comment %}
-  The mark beside an admin's name: a shield with a tick and the word, in
-  the brand colour, wherever they are named — so whoever runs the board is
-  known as such on a notice, a comment, a story or their page. Nothing at
-  all for everybody else. Takes: user.
+  The tick badge of somebody who runs the board: a seal with a tick, gold
+  for an admin and blue for a moderator. Beside a name (a notice, a comment,
+  a story, a friend row) it is just the badge, named for a pointer and a
+  screen reader; on their profile (full=True) the word is written out too.
+  Nothing at all for everybody else. Takes: user, and full on a profile page.
 {% endcomment %}
-{% if user.is_staff %}<span class="admin-badge" title="Admin">{% icon "shield" width="2.4" %}Admin</span>{% endif %}
+{% with mark=user|name_badge %}{% if mark %}<span class="admin-badge{% if not full %} admin-badge--icon{% endif %}{% if mark == 'moderator' %} admin-badge--moderator{% endif %}"{% if not full %} role="img" aria-label="{% if mark == 'admin' %}Admin{% else %}Moderator{% endif %}"{% endif %} title="{% if mark == 'admin' %}Admin{% else %}Moderator{% endif %}"><svg class="tick-badge" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M12.00 1.00 L14.41 3.02 L17.50 2.47 L18.58 5.42 L21.53 6.50 L20.98 9.59 L23.00 12.00 L20.98 14.41 L21.53 17.50 L18.58 18.58 L17.50 21.53 L14.41 20.98 L12.00 23.00 L9.59 20.98 L6.50 21.53 L5.42 18.58 L2.47 17.50 L3.02 14.41 L1.00 12.00 L3.02 9.59 L2.47 6.50 L5.42 5.42 L6.50 2.47 L9.59 3.02Z"/><path fill="none" stroke="#0b1f16" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="m7.6 12.3 3 3 5.8-6.2"/></svg>{% if full %}{% if mark == "admin" %}Admin{% else %}Moderator{% endif %}{% endif %}</span>{% endif %}{% endwith %}

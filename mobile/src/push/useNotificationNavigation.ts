@@ -67,6 +67,12 @@ export function useNotificationNavigation(ready: boolean, username?: string) {
       if (isCurrent()) await Notifications.clearLastNotificationResponseAsync();
     };
     const sub = Notifications.addNotificationResponseReceivedListener((response) => { follow(response).catch(() => {}); });
+    // One arriving while the app is open shows nothing (app/_layout.tsx), so
+    // the counts on screen move at once instead of on their next poll.
+    const arrived = Notifications.addNotificationReceivedListener(() => {
+      for (const key of ["unread", "inbox", "chat-unread", "home"]) client.invalidateQueries({ queryKey: [key] });
+      client.invalidateQueries({ queryKey: ["chat", "inbox"] });
+    });
     Notifications.getLastNotificationResponseAsync().then((response) => {
       // A live tap may have arrived while the cold-start response was being read.
       if (latest === null) return follow(response);
@@ -83,6 +89,6 @@ export function useNotificationNavigation(ready: boolean, username?: string) {
     let live: { remove(): void } | undefined;
     try { live = LiveShift?.addListener("onAction", takeLive); } catch { /* cold-start take still runs */ }
     takeLive();
-    return () => { active = false; sub.remove(); live?.remove(); };
+    return () => { active = false; sub.remove(); arrived.remove(); live?.remove(); };
   }, [ready, username, client]);
 }

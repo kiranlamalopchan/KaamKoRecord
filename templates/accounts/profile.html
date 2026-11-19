@@ -80,7 +80,7 @@
     </details>
   </form>
 
-  <h1 class="profile-id__name">{{ me.name }}{% include "accounts/_admin_badge.html" with user=request.user %}</h1>
+  <h1 class="profile-id__name">{{ me.name }}{% include "accounts/_admin_badge.html" with user=request.user full=True %}</h1>
   <p class="profile-id__meta">
     @{{ request.user.username }}
   </p>

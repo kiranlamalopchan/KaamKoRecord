@@ -9,6 +9,7 @@ import { native } from "@/ui/native";
 import { radius, sp, useTheme } from "@/ui/theme";
 import { EdgeItem, useRailScroll } from "@/ui/Frost";
 import { confirm, tell } from "@/ui/confirm";
+import { errorMessage } from "@/api/errors";
 
 export default function ImportItems() {
   const t = useTheme();
@@ -35,7 +36,7 @@ export default function ImportItems() {
       const result = await catalogue.preview(file, setProgress);
       const existing = current.data?.catalogues.find(c => String(c.id) === params.catalogue);
       setPreview(result); setMapping(existing ? { ...result.defaults, catalogue_id: existing.id, name: existing.name } : result.defaults); setReview(false);
-    } catch (e: any) { setError(e?.message || "The CSV couldn't be read."); }
+    } catch (e: any) { setError(errorMessage(e)); }
     finally { setBusy(false); setProgress(null); }
   };
   const save = async () => {
@@ -46,7 +47,7 @@ export default function ImportItems() {
       changed();
       tell("Catalogue saved", result.message);
       router.replace({ pathname: "/plu", params: { view: "catalogues", catalogue: String(result.catalogue_id) } });
-    } catch (e: any) { setError(e?.message || "The catalogue couldn't be saved."); }
+    } catch (e: any) { setError(errorMessage(e)); }
     finally { setBusy(false); }
   };
   const target = current.data?.catalogues.find((c) => c.id === mapping?.catalogue_id);

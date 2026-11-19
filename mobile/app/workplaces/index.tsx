@@ -21,6 +21,7 @@ import { sp, useTheme } from "@/ui/theme";
 import { cssColour } from "@/ui/timesheet";
 import { Select } from "@/ui/Select";
 import { Fold, FoldChevron } from "@/ui/Disclosure";
+import { errorMessage } from "@/api/errors";
 
 export default function Workplaces() {
   const t = useTheme();
@@ -67,7 +68,7 @@ function Job({ w, last }: { w: Workplace; last: boolean }) {
       changed();
       success();
     } catch (e: any) {
-      notify("Couldn't make it the default", e?.message || "");
+      notify("Couldn't make it the default", errorMessage(e));
     }
   };
   const line = [w.hourly_rate ? `$${w.hourly_rate.toFixed(2)}/hr` : "No rate", w.pay_cycle_label].join(" · ");
@@ -117,7 +118,7 @@ function CyclesPanel({ cycles, choices }: { cycles: Cycles; choices: { weekdays:
       tell("Saved", "Where your week, fortnight and month begin.");
       setOpen(false);
     } catch (e: any) {
-      notify("Not saved", e?.message || "");
+      notify("Not saved", errorMessage(e));
     } finally {
       setBusy(false);
     }

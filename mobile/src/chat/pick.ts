@@ -13,13 +13,14 @@
 import type { FilePart } from "@/api/client";
 import type { ChatLimits } from "@/api/types";
 import { native } from "@/ui/native";
+import { Said } from "@/api/errors";
 
 export type Picked =
   | { kind: "photos"; files: (FilePart & { width?: number; height?: number })[] }
   | { kind: "video"; files: FilePart[]; duration: number; size: number | null }
   | { kind: "file"; files: FilePart[]; size: number | null };
 
-export class TooBig extends Error {}
+export class TooBig extends Said {}
 
 type Picker = typeof import("expo-image-picker");
 const picker = () => native<Picker>(() => require("expo-image-picker"));
@@ -44,7 +45,7 @@ function photoPart(asset: { uri: string; fileName?: string | null; mimeType?: st
 export async function pickFromLibrary(limits: ChatLimits): Promise<Picked | null> {
   const P = picker();
   const permission = await P.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) throw new Error("Allow photo access in Settings to send photos and videos.");
+  if (!permission.granted) throw new Said("Allow photo access in Settings to send photos and videos.");
   const result = await P.launchImageLibraryAsync({
     mediaTypes: ["images", "videos"],
     allowsMultipleSelection: true,
@@ -79,7 +80,7 @@ export async function pickFromLibrary(limits: ChatLimits): Promise<Picked | null
 export async function pickVideoToTrim(limits: ChatLimits): Promise<Picked | null> {
   const P = picker();
   const permission = await P.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) throw new Error("Allow photo access in Settings to send videos.");
+  if (!permission.granted) throw new Said("Allow photo access in Settings to send videos.");
   const result = await P.launchImageLibraryAsync({
     mediaTypes: ["videos"],
     allowsEditing: true,
@@ -102,7 +103,7 @@ export async function pickVideoToTrim(limits: ChatLimits): Promise<Picked | null
 export async function capture(limits: ChatLimits): Promise<Picked | null> {
   const P = picker();
   const permission = await P.requestCameraPermissionsAsync();
-  if (!permission.granted) throw new Error("Allow camera access in Settings to take photos and videos.");
+  if (!permission.granted) throw new Said("Allow camera access in Settings to take photos and videos.");
   const result = await P.launchCameraAsync({
     mediaTypes: ["images", "videos"],
     quality: 0.9,

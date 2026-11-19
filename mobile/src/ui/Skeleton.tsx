@@ -292,29 +292,29 @@ export function SkeletonReactions() {
   );
 }
 
-/** Somebody's page: their face and name, four counts, then their notices. */
+/** Somebody's page: their face and name in the middle, the buttons, the strip of counts, then their notices. */
 export function SkeletonPerson() {
   return (
     <>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: sp[4], paddingTop: sp[4] }}>
-        <Face size={72} />
-        <View style={{ flex: 1, gap: 8 }}>
-          <Bone width="55%" height={22} round={7} />
-          <Bone width="75%" height={14} />
-        </View>
+      <View style={{ alignItems: "center", gap: 10, paddingTop: sp[5], paddingBottom: sp[2] }}>
+        <Face size={110} />
+        <Bone width="45%" height={24} round={8} />
+        <Bone width="35%" height={14} />
       </View>
-      <View style={styles.grid}>
+      <View style={{ flexDirection: "row", gap: sp[2] }}>
+        <Bone width="42%" height={52} round={26} />
+        <Bone width="42%" height={52} round={26} />
+        <Face size={52} />
+      </View>
+      <Card pad={false} style={{ flexDirection: "row", paddingVertical: sp[3] }}>
         {Array.from({ length: 4 }, (_, i) => (
-          <Card key={i} pad={false} style={{ width: "47%", flexGrow: 1, padding: sp[4], gap: 8 }}>
-            <Bone width={36} height={22} round={7} />
-            <Bone width={`${45 + ((i * 23) % 40)}%`} height={13} />
-          </Card>
+          <View key={i} style={{ flex: 1, alignItems: "center", gap: 6 }}>
+            <Bone width={28} height={20} round={6} />
+            <Bone width={`${50 + ((i * 17) % 30)}%`} height={11} />
+          </View>
         ))}
-      </View>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: sp[2], marginTop: sp[2] }}>
-        <Face size={18} />
-        <Bone width={120} height={18} round={6} />
-      </View>
+      </Card>
+      <Bone width={110} height={20} round={6} />
       <SkeletonNotice lines={3} />
     </>
   );

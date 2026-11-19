@@ -1,11 +1,9 @@
 /**
  * Whether the top bar has stepped aside for the page: scroll down and it
  * slides away so the page has the whole screen, and it stays away until the
- * page is scrolled back up to its top. (The tab bar does its own, natively — iOS
- * 26 shrinks it on the same gesture; see app/(tabs)/_layout.tsx.)
+ * page is scrolled back up to its top.
  *
- * One flag for the whole app, kept outside React so a page deep inside a tab
- * and its bar read the same thing without a provider around both.
+ * The page and its top bar share this flag across the navigation stack.
  */
 import { useSyncExternalStore } from "react";
 
@@ -43,12 +41,11 @@ export function followScroll(state: { y: number; run: number; view?: number }, e
   const y = Math.min(Math.max(e.contentOffset.y, 0), end);
   const delta = y - state.y;
   state.y = y;
-  // The page itself changed size — the bars going or coming give it more room
-  // or less, and at the foot of the page the offset is pulled back to match.
-  // Nobody scrolled; following it would bring the bars straight back.
+  // A resize can change the offset at the foot of the page without a scroll.
   const resized = state.view !== undefined && state.view !== e.layoutMeasurement.height;
   state.view = e.layoutMeasurement.height;
   if (delta === 0 || resized) return;
+
   if (y <= CHROME_TOP) { state.run = 0; setChromeHidden(false); return; }
   // Out of the way for the rest of the page: scrolling back up keeps it
   // hidden until the top, where the line above brings it home.

@@ -4,9 +4,11 @@ import { ApiError } from "@/api/client";
 import { WorkplaceForm } from "@/ui/WorkplaceForm";
 
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
+// A draft kept on the phone from an earlier visit, when a test sets one.
+let mockKeptDraft: unknown = null;
 jest.mock("@/storage/private", () => {
   const { useState } = require("react");
-  return { usePrivateState: (_key: string, initial: unknown) => { const [v, set] = useState(initial); return [v, set, true]; } };
+  return { usePrivateState: (_key: string, initial: unknown) => { const [v, set] = useState(mockKeptDraft ?? initial); return [v, set, true]; } };
 });
 jest.mock("@/ui/haptics", () => ({ fail: jest.fn(), success: jest.fn(), tick: jest.fn(), tap: jest.fn() }));
 
@@ -43,9 +45,21 @@ test("up front only the essentials; everything else folds away with a one-line s
   expect(view.getByText("48 h per fortnight")).toBeTruthy();
   expect(view.getByText("Week from Mon · Month from day 1")).toBeTruthy();
   expect(view.getByText("Not added")).toBeTruthy();
-  for (const id of ["pay", "rates", "limit", "cycles", "address"]) {
+  for (const id of ["pay", "rates", "overtime", "limit", "cycles", "address"]) {
     expect(view.getByTestId(`wp-section-${id}`)).toBeTruthy();
   }
+});
+
+test("a weekday workplace can save at the normal rate without setting up extra pay", async () => {
+  const onSave = jest.fn(async () => {});
+  const view = await render(<WorkplaceForm choices={choices} cycles={cycles} onSave={onSave} onCancel={jest.fn()} />);
+  expect(view.getByText("Normal hourly rate")).toBeTruthy();
+  expect(view.queryByLabelText("Saturday, times the normal rate")).toBeNull();
+  await fireEvent.changeText(view.getByTestId("wp-name"), "Bakery");
+  await fireEvent.press(view.getByTestId("save-workplace"));
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+    saturday_multiplier: "1", sunday_multiplier: "1", public_holiday_multiplier: "1", overtime_after_hours: "",
+  }));
 });
 
 test("choosing cash says there is no tax, and saving sends every setting unchanged", async () => {
@@ -106,4 +120,66 @@ test("while a payslip is being read the row says so and shows a spinner", async 
   await act(async () => { finish({ fields: {}, read: [], notes: [] }); });
   expect(view.queryByTestId("wp-payslip-reading")).toBeNull();
   expect(view.getByText("Fill from a payslip")).toBeTruthy();
+});
+
+test("double time appears once overtime is set, shows the split, and is saved", async () => {
+  const onSave = jest.fn(async () => {});
+  const view = await form(onSave);
+  await fireEvent.press(view.getByText("Overtime pay"));
+  expect(view.queryByLabelText("Overtime rate, times the normal rate")).toBeNull();
+  expect(view.queryByTestId("wp-double-after")).toBeNull();
+  await fireEvent.changeText(view.getByLabelText("Overtime after, hours in a shift"), "8");
+  await fireEvent.changeText(view.getByTestId("wp-double-after"), "10");
+  expect(view.getByTestId("wp-double-example").props.children).toBe("e.g. a 12 h shift: 8 h normal · 2 h overtime · 2 h double");
+  await act(async () => { fireEvent.press(view.getByTestId("save-workplace")); });
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+    overtime_after_hours: "8", overtime_multiplier: "1.5", double_time_after_hours: "10", double_time_multiplier: "2",
+  }));
+});
+
+test("with no overtime, double time is cleared when saving", async () => {
+  const onSave = jest.fn(async () => {});
+  const view = await form(onSave);
+  await act(async () => { fireEvent.press(view.getByTestId("save-workplace")); });
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ overtime_after_hours: "", double_time_after_hours: "" }));
+});
+
+test("a rate or hours out of range is explained as you type, not after saving", async () => {
+  const onSave = jest.fn(async () => {});
+  const view = await form(onSave);
+  await fireEvent.press(view.getByText("Overtime pay"));
+  await fireEvent.changeText(view.getByLabelText("Overtime after, hours in a shift"), "8");
+  await fireEvent.changeText(view.getByLabelText("Overtime rate, times the normal rate"), "7");
+  expect(view.getByText("Use a rate from 1× to 5× — 1 is the normal rate, 1.5 time and a half, 2 double.")).toBeTruthy();
+  await fireEvent.changeText(view.getByLabelText("Overtime rate, times the normal rate"), "1,5");
+  expect(view.queryByText("Use a rate from 1× to 5× — 1 is the normal rate, 1.5 time and a half, 2 double.")).toBeNull();
+  await fireEvent.changeText(view.getByLabelText("Overtime after, hours in a shift"), "30");
+  expect(view.getByText("Use a number of hours from 0.25 to 24, like 8.")).toBeTruthy();
+  await fireEvent.changeText(view.getByLabelText("Overtime after, hours in a shift"), "8");
+  await fireEvent.changeText(view.getByTestId("wp-double-after"), "7");
+  expect(view.getByText("Double time has to start after overtime (8 h). Try a larger number.")).toBeTruthy();
+  await fireEvent.changeText(view.getByTestId("wp-double-after"), "10");
+  await act(async () => { fireEvent.press(view.getByTestId("save-workplace")); });
+  // A comma decimal goes to the server as a dot.
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ overtime_multiplier: "1.5", overtime_after_hours: "8", double_time_after_hours: "10" }));
+});
+
+test("a draft kept from before double time existed opens without crashing", async () => {
+  // What the phone kept for a workplace edited on an older build: no double-time keys at all.
+  mockKeptDraft = {
+    name: "AUFS", address: "", color: 1, payCycle: "FORTNIGHT", paidIn: "BANK", rate: "28.5", tax: "",
+    sat: "1.25", sun: "1.5", holiday: "2.5", overtimeAfter: "8", overtimeMult: "1.5",
+    scale: "TFT", loan: false, limit: "48", limitPeriod: "FORTNIGHT", week: 0, fortnight: 0, phase: "this", month: "1", isDefault: false,
+  };
+  try {
+    const onSave = jest.fn(async () => {});
+    const view = await form(onSave);
+    expect(view.getByTestId("wp-name").props.value).toBe("AUFS");
+    await fireEvent.press(view.getByText("Overtime pay"));
+    expect(view.getByTestId("wp-double-after").props.value).toBe("");
+    await act(async () => { fireEvent.press(view.getByTestId("save-workplace")); });
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "AUFS", overtime_after_hours: "8", double_time_after_hours: "", double_time_multiplier: "2" }));
+  } finally {
+    mockKeptDraft = null;
+  }
 });

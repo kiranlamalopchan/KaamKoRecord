@@ -13,6 +13,7 @@ jest.mock("expo-constants", () => ({ __esModule: true, default: { appOwnership: 
 jest.mock("expo-notifications", () => ({
   AndroidImportance: { HIGH: 4 },
   setNotificationChannelAsync: jest.fn(async () => {}),
+  deleteNotificationChannelAsync: jest.fn(async () => {}),
   getPermissionsAsync: jest.fn(async () => ({ status: mockPhone.status, canAskAgain: mockPhone.canAskAgain })),
   requestPermissionsAsync: jest.fn(async () => {
     mockPhone.status = mockPhone.grants ? "granted" : "denied";
@@ -76,4 +77,17 @@ test("sign-out hands back the token it was given, once", async () => {
   expect(await forgetPushToken()).toBe("ExponentPushToken[abc]");
   expect(await forgetPushToken()).toBeNull();
   expect(await pushState()).toBe("off");
+});
+
+test("registering asks for no tone of our own: the phone's sound plays", async () => {
+  const { me } = jest.requireMock("@/api") as { me: { registerDevice: jest.Mock } };
+  await enablePush();
+  expect(me.registerDevice).toHaveBeenLastCalledWith("ExponentPushToken[abc]", expect.any(String), "Test phone");
+});
+
+test("with the app open a notification only moves the badge: no banner, no sound, nothing left on the lock screen", () => {
+  const { whileOpen } = jest.requireActual("@/push/register") as typeof import("@/push/register");
+  expect(whileOpen({ url: "/messages/c/1/" })).toEqual({ shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: true });
+  // The running shift's standing line keeps its place in the list.
+  expect(whileOpen({ status: "working" }).shouldShowList).toBe(true);
 });

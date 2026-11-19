@@ -28,6 +28,7 @@ import { Select } from "./Select";
 import { usePrivateState } from "@/storage/private";
 import { fail, success } from "./haptics";
 import { useT } from "@/i18n";
+import { errorMessage } from "@/api/errors";
 
 type Choices = WorkplacesPage["choices"];
 
@@ -39,17 +40,34 @@ const PAYSLIP_TYPES = Platform.OS === "android"
   ? ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]
   : ["application/pdf", "image/*"];
 
-type Section = "pay" | "rates" | "limit" | "cycles" | "address";
+type Section = "pay" | "rates" | "overtime" | "limit" | "cycles" | "address";
 
 /** Which folded row each server field lives in, so a refusal or a payslip fill can open it. */
 const SECTION_OF: Record<string, Section> = {
   pay_cycle: "pay", tax_scale: "pay", tax_rate: "pay", study_loan: "pay",
   saturday_multiplier: "rates", sunday_multiplier: "rates", public_holiday_multiplier: "rates",
-  overtime_after_hours: "rates", overtime_multiplier: "rates",
+  overtime_after_hours: "overtime", overtime_multiplier: "overtime", double_time_after_hours: "overtime", double_time_multiplier: "overtime",
   hours_limit: "limit", limit_period: "limit",
   week_starts_on: "cycles", fortnight_starts_on: "cycles", fortnight_phase: "cycles", month_starts_on: "cycles",
   address: "address",
 };
+
+/** Checked as you type, in the server's own words (apps/timeclock/forms.py), so nothing waits for Save. */
+const RATE_RULE = "Use a rate from 1× to 5× — 1 is the normal rate, 1.5 time and a half, 2 double.";
+const HOURS_RULE = "Use a number of hours from 0.25 to 24, like 8.";
+/** A phone set to a comma decimal types "1,5"; the server reads "1.5". */
+const dot = (value: string) => value.trim().replace(",", ".");
+const number = (value: string) => Number(dot(value));
+export function rateProblem(value: string): string | undefined {
+  if (!value.trim()) return undefined;
+  const n = number(value);
+  return Number.isFinite(n) && n >= 1 && n <= 5 ? undefined : RATE_RULE;
+}
+export function hoursProblem(value: string): string | undefined {
+  if (!value.trim()) return undefined;
+  const n = number(value);
+  return Number.isFinite(n) && n >= 0.25 && n <= 24 ? undefined : HOURS_RULE;
+}
 
 const times = (value: string) => {
   const n = Number(value);
@@ -68,6 +86,7 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
     rate: w?.hourly_rate != null ? String(w.hourly_rate) : "", tax: w?.tax_rate != null ? String(w.tax_rate) : "",
     sat: String(w?.saturday_multiplier ?? 1), sun: String(w?.sunday_multiplier ?? 1), holiday: String(w?.public_holiday_multiplier ?? 1),
     overtimeAfter: w?.overtime_after_hours != null ? String(w.overtime_after_hours) : "", overtimeMult: String(w?.overtime_multiplier ?? 1.5),
+    doubleAfter: w?.double_time_after_hours != null ? String(w.double_time_after_hours) : "", doubleMult: String(w?.double_time_multiplier ?? 2),
     scale: (w ? (w.tax_scale ?? (w.tax_rate != null ? "CUSTOM" : "")) : (newTaxScale ?? "")) as string,
     loan: !!w?.study_loan, limit: w?.hours_limit != null ? String(w.hours_limit) : "",
     limitPeriod: w?.limit_period || "FORTNIGHT", week: w?.week_starts_on ?? cycles.week_starts_on,
@@ -77,8 +96,10 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
   type Draft = typeof initialDraft;
   // Kept on the phone (privately) as it is typed, so leaving half-way loses nothing.
   const [saved, setSaved, restored] = usePrivateState<Draft | null>(`workplace-draft:${w?.id || "new"}`, null);
-  const d = saved || initialDraft;
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setSaved(previous => ({ ...(previous || initialDraft), [key]: value }));
+  // A draft kept from before a field existed (double time, say) has no value
+  // for it: the workplace's own fills the gap, so an old draft never crashes.
+  const d: Draft = saved ? { ...initialDraft, ...saved } : initialDraft;
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setSaved(previous => ({ ...initialDraft, ...(previous || {}), [key]: value }));
 
   const scales = choices.tax_scales;
   const loanApplies = (choices.loan_scales || []).includes(d.scale);
@@ -132,7 +153,7 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
       if (f.fortnight_starts_on != null) { next.fortnight = Number(f.fortnight_starts_on); got.fortnight_starts_on = true; }
       if (f.fortnight_phase) { next.phase = String(f.fortnight_phase); got.fortnight_phase = true; }
       if (f.month_starts_on != null) { next.month = String(f.month_starts_on); got.month_starts_on = true; }
-      setSaved(previous => ({ ...(previous || initialDraft), ...next }));
+      setSaved(previous => ({ ...initialDraft, ...(previous || {}), ...next }));
       setFilled(got);
       // Open the first folded row the slip filled, so its values are seen and checked.
       const first = Object.keys(got).map(key => SECTION_OF[key]).find(Boolean);
@@ -145,7 +166,7 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
         ? e.offline
           ? "You're offline. Turn Wi-Fi or mobile data back on and try again."
           : "Couldn't reach KaamKoRecord. Check your connection, or try again in a moment."
-        : e?.message || "That file couldn't be read.");
+        : errorMessage(e));
     } finally {
       setReading(false);
     }
@@ -155,12 +176,14 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
     setErrors({}); setDetail(""); setBusy(true);
     try {
       await onSave({
-        name: d.name, address: d.address, color: d.color, pay_cycle: d.payCycle, paid_in: d.paidIn, hourly_rate: d.rate,
-        saturday_multiplier: d.sat, sunday_multiplier: d.sun, public_holiday_multiplier: d.holiday,
-        overtime_after_hours: d.overtimeAfter, overtime_multiplier: d.overtimeMult,
-        tax_rate: cash || !byPercentage ? "" : d.tax,
+        name: d.name, address: d.address, color: d.color, pay_cycle: d.payCycle, paid_in: d.paidIn, hourly_rate: dot(d.rate),
+        saturday_multiplier: dot(d.sat), sunday_multiplier: dot(d.sun), public_holiday_multiplier: dot(d.holiday),
+        overtime_after_hours: dot(d.overtimeAfter), overtime_multiplier: dot(d.overtimeMult),
+        // Double time only means something after overtime; with no overtime it is cleared.
+        double_time_after_hours: d.overtimeAfter.trim() ? dot(d.doubleAfter) : "", double_time_multiplier: dot(d.doubleMult),
+        tax_rate: cash || !byPercentage ? "" : dot(d.tax),
         ...(scales ? { tax_scale: d.scale, study_loan: loanApplies && d.loan } : {}),
-        hours_limit: d.limit, limit_period: d.limitPeriod, week_starts_on: d.week, fortnight_starts_on: d.fortnight, fortnight_phase: d.phase,
+        hours_limit: dot(d.limit), limit_period: d.limitPeriod, week_starts_on: d.week, fortnight_starts_on: d.fortnight, fortnight_phase: d.phase,
         month_starts_on: d.month, is_default: d.isDefault,
       });
       setSaved(null);
@@ -174,8 +197,8 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
         // A refused box in a folded row: open that row, so the message is where the box is.
         const first = Object.keys(flat).map(key => SECTION_OF[key]).find(Boolean);
         if (first) setOpen(first);
-        if (!Object.keys(flat).length) setDetail(e.message);
-      } else setDetail(e?.message || "That couldn't be saved.");
+        if (!Object.keys(flat).length) setDetail(errorMessage(e));
+      } else setDetail(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -189,13 +212,33 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
     : scales && d.scale && d.scale !== "CUSTOM" ? label(scales, d.scale)
       : d.tax.trim() ? tr("{n}% tax", { n: d.tax.trim() }) : tr("Pay before tax");
   const paySummary = `${label(choices.pay_cycles, d.payCycle)} · ${taxSummary}`;
-  const extras = [
-    Number(d.sat) !== 1 ? `${tr("Sat")} ${times(d.sat)}` : "",
-    Number(d.sun) !== 1 ? `${tr("Sun")} ${times(d.sun)}` : "",
-    Number(d.holiday) !== 1 ? `${tr("Holiday")} ${times(d.holiday)}` : "",
-    d.overtimeAfter.trim() ? tr("Overtime after {n} h", { n: d.overtimeAfter.trim() }) : "",
-  ].filter(Boolean);
-  const ratesSummary = extras.length ? extras.join(" · ") : tr("Same rate every day");
+  const weekendRates = [
+    { label: "Sat", rate: dot(d.sat) || String(w?.saturday_multiplier ?? 1) },
+    { label: "Sun", rate: dot(d.sun) || String(w?.sunday_multiplier ?? 1) },
+    { label: "Holiday", rate: dot(d.holiday) || String(w?.public_holiday_multiplier ?? 1) },
+  ].filter(({ rate }) => number(rate) !== 1);
+  const weekendSummary = weekendRates.map(({ label, rate }) => `${tr(label)} ${times(rate)}`).join(" · ") || tr("Normal hourly rate");
+  const overtimeAfter = d.overtimeAfter.trim();
+  const overtimeSummary = overtimeAfter ? tr("Overtime after {n} h", { n: overtimeAfter }) : tr("Not set");
+  const showDoubleTime = overtimeAfter || errors.double_time_after_hours || errors.double_time_multiplier;
+  // Double time is a second step, so it has to start after overtime does.
+  const doubleProblem = (() => {
+    if (!d.doubleAfter.trim()) return undefined;
+    const own = hoursProblem(d.doubleAfter);
+    if (own) return tr(own);
+    if (!hoursProblem(d.overtimeAfter) && number(d.doubleAfter) <= number(d.overtimeAfter)) {
+      return tr("Double time has to start after overtime ({n} h). Try a larger number.", { n: d.overtimeAfter.trim() });
+    }
+    return undefined;
+  })();
+  // A worked example under the double-time boxes: a shift two hours past double time, split.
+  const steps = (() => {
+    const overtime = number(d.overtimeAfter), double = number(d.doubleAfter);
+    if (!d.overtimeAfter.trim() || !d.doubleAfter.trim() || !(double > overtime) || !(overtime > 0)) return "";
+    const shift = double + 2;
+    const n = (x: number) => String(Math.round(x * 100) / 100);
+    return tr("e.g. a {shift} h shift: {a} h normal · {b} h overtime · {c} h double", { shift: n(shift), a: n(overtime), b: n(double - overtime), c: "2" });
+  })();
   const limitSummary = d.limit.trim() ? `${d.limit.trim()} h ${label(choices.limit_periods, d.limitPeriod).toLowerCase()}` : tr("No limit");
   const cyclesSummary = tr("Week from {day} · Month from day {n}", { day: day(d.week), n: d.month });
 
@@ -289,23 +332,44 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
           </View>
         </Disclosure>
 
-        <Disclosure icon="trending-up-outline" title={tr("Weekend & overtime")} hint={ratesSummary} open={open === "rates"} onToggle={() => toggle("rates")} badge={flagged("rates")} testID="wp-section-rates">
+        <Disclosure icon="calendar-outline" title={tr("Weekend & holiday pay")} hint={weekendSummary} open={open === "rates"} onToggle={() => toggle("rates")} badge={flagged("rates")} testID="wp-section-rates">
           <View style={styles.body}>
-            <Text style={{ color: t.muted, fontSize: 13.5 }}>{tr("1 = normal rate · 1.5 = time and a half · 2 = double")}</Text>
+            <Text style={{ color: t.muted, fontSize: 13.5 }}>{tr("Keep 1× for normal pay. Only change a rate if you get paid extra for working that day.")}</Text>
             <View style={styles.grid}>
               <Multiplier label="Saturday" value={d.sat} onChange={(v) => { set("sat", v); mine("saturday_multiplier"); }} error={errors.saturday_multiplier} filled={filled.saturday_multiplier} />
               <Multiplier label="Sunday" value={d.sun} onChange={(v) => { set("sun", v); mine("sunday_multiplier"); }} error={errors.sunday_multiplier} filled={filled.sunday_multiplier} />
               <Multiplier label="Public holiday" value={d.holiday} onChange={(v) => { set("holiday", v); mine("public_holiday_multiplier"); }} error={errors.public_holiday_multiplier} filled={filled.public_holiday_multiplier} />
             </View>
+          </View>
+        </Disclosure>
+
+        <Disclosure icon="trending-up-outline" title={tr("Overtime pay")} hint={overtimeSummary} open={open === "overtime"} onToggle={() => toggle("overtime")} badge={flagged("overtime")} testID="wp-section-overtime">
+          <View style={styles.body}>
             <View style={styles.grid}>
-              <Field label="Overtime after" error={errors.overtime_after_hours}>
+              <Field label="Overtime after" help="Leave blank if you don't get overtime pay." error={errors.overtime_after_hours || (hoursProblem(d.overtimeAfter) && tr(hoursProblem(d.overtimeAfter)!))}>
                 <View style={styles.money}>
                   <Input value={d.overtimeAfter} onChangeText={(v) => set("overtimeAfter", v)} keyboardType="decimal-pad" placeholder="8" style={{ width: 72 }} accessibilityLabel={tr("Overtime after, hours in a shift")} />
                   <Text style={{ color: t.muted, fontSize: 15 }}>{tr("h a shift")}</Text>
                 </View>
               </Field>
-              <Multiplier label="Overtime rate" value={d.overtimeMult} onChange={(v) => { set("overtimeMult", v); mine("overtime_multiplier"); }} error={errors.overtime_multiplier} filled={filled.overtime_multiplier} />
+              {overtimeAfter || errors.overtime_multiplier || filled.overtime_multiplier ? (
+                <Multiplier label="Overtime rate" value={d.overtimeMult} onChange={(v) => { set("overtimeMult", v); mine("overtime_multiplier"); }} error={errors.overtime_multiplier} filled={filled.overtime_multiplier} />
+              ) : null}
             </View>
+            {showDoubleTime ? <>
+              <View style={styles.grid}>
+                <Field label="Double time after" help="Optional" error={errors.double_time_after_hours || doubleProblem}>
+                  <View style={styles.money}>
+                    <Input value={d.doubleAfter} onChangeText={(v) => set("doubleAfter", v)} keyboardType="decimal-pad" placeholder="10" style={{ width: 72 }} accessibilityLabel={tr("Double time after, hours in a shift")} testID="wp-double-after" />
+                    <Text style={{ color: t.muted, fontSize: 15 }}>{tr("h a shift")}</Text>
+                  </View>
+                </Field>
+                {d.doubleAfter.trim() || errors.double_time_multiplier ? (
+                  <Multiplier label="Double time rate" value={d.doubleMult} onChange={(v) => { set("doubleMult", v); mine("double_time_multiplier"); }} error={errors.double_time_multiplier} filled={filled.double_time_multiplier} />
+                ) : null}
+              </View>
+              {steps ? <Text style={{ color: t.text2, fontSize: 13.5 }} testID="wp-double-example">{steps}</Text> : null}
+            </> : null}
             {!d.rate.trim() ? <Text style={{ color: t.muted, fontSize: 13 }}>{tr("These need an hourly rate to change your pay estimate.")}</Text> : null}
           </View>
         </Disclosure>
@@ -366,8 +430,9 @@ export function WorkplaceForm({ choices, workplace, cycles, newTaxScale, onSave,
 /** A rate multiplier: the number with its × after it. */
 function Multiplier({ label, value, onChange, error, filled }: { label: string; value: string; onChange: (value: string) => void; error?: string; filled?: boolean }) {
   const t = useTheme(), tr = useT();
+  const problem = rateProblem(value);
   return (
-    <Field label={label} error={error} filled={filled}>
+    <Field label={label} error={error || (problem && tr(problem))} filled={filled}>
       <View style={styles.money}>
         <Input value={value} onChangeText={onChange} keyboardType="decimal-pad" style={{ width: 72 }} accessibilityLabel={tr("{label}, times the normal rate", { label: tr(label) })} />
         <Text style={{ color: t.text2, fontSize: 17, fontWeight: "600" }}>×</Text>

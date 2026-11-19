@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { Platform } from "react-native";
 import { NativeTabs } from "expo-router/native-tabs";
+import { Ionicons } from "@expo/vector-icons";
 
 import { useChatUnread, useUnread } from "@/api";
 import { setBadge } from "@/push/register";
@@ -12,7 +13,7 @@ const TABS = [
   { name: "plu", title: "Items", sf: { default: "magnifyingglass", selected: "magnifyingglass" }, md: "search" },
   { name: "work", title: "Work", sf: { default: "briefcase", selected: "briefcase.fill" }, md: "work" },
   // Notifications moved to the bell at the top right of the main screens (ui/AppBar).
-  { name: "chats", title: "Chats", sf: { default: "bubble.left.and.bubble.right", selected: "bubble.left.and.bubble.right.fill" }, md: "chat" },
+  { name: "chats", title: "Chats", md: null },
   { name: "account", title: "Profile", sf: { default: "person.crop.circle", selected: "person.crop.circle.fill" }, md: "account_circle" },
 ] as const;
 
@@ -30,7 +31,7 @@ export default function TabsLayout() {
       tintColor={t.brand}
       badgeBackgroundColor={t.danger}
       badgeTextColor={t.dangerInk}
-      minimizeBehavior="onScrollDown"
+      minimizeBehavior="never"
       labelStyle={{ fontWeight: "600" }}
       iconColor={{ default: t.muted, selected: t.brand }}
       backgroundColor={Platform.OS === "android" ? t.surface : undefined}
@@ -40,7 +41,12 @@ export default function TabsLayout() {
       {TABS.map((tab) => (
         <NativeTabs.Trigger key={tab.name} name={tab.name}>
           <NativeTabs.Trigger.Label>{tr(tab.title)}</NativeTabs.Trigger.Label>
-          <NativeTabs.Trigger.Icon sf={tab.sf} md={tab.md} />
+          {tab.md ? <NativeTabs.Trigger.Icon sf={tab.sf} md={tab.md} /> : (
+            <NativeTabs.Trigger.Icon src={{
+              default: <NativeTabs.Trigger.VectorIcon family={Ionicons} name="chatbubble-outline" />,
+              selected: <NativeTabs.Trigger.VectorIcon family={Ionicons} name="chatbubble" />,
+            }} />
+          )}
           {tab.name === "chats" && chatUnread > 0 ? <NativeTabs.Trigger.Badge>{chatBadge}</NativeTabs.Trigger.Badge> : null}
         </NativeTabs.Trigger>
       ))}

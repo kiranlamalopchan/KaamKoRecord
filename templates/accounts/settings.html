@@ -16,6 +16,14 @@
       <a class="profile-minimal__row" href="{% url 'moderation:blocked' %}">{% icon "shield" %}<span>Blocked people</span>{% icon "chev" %}</a>
     </div>
   </section>
+  {% if is_moderator %}
+  <section aria-labelledby="moderation-settings">
+    <h2 class="profile-settings__label" id="moderation-settings">MODERATION</h2>
+    <div class="profile-settings__group">
+      <a class="profile-minimal__row" href="{% url 'moderation:reports' %}">{% icon "shield" %}<span>Reports{% if open_reports %} ({{ open_reports }}){% endif %}</span>{% icon "chev" %}</a>
+    </div>
+  </section>
+  {% endif %}
   {% if request.user.is_staff %}
   <section aria-labelledby="admin-settings">
     <h2 class="profile-settings__label" id="admin-settings">ADMINISTRATION</h2>

@@ -15,11 +15,15 @@ export function redact(value: unknown): unknown {
   return value;
 }
 
-/** Machine faults always get fixed copy. Only our API's written validation passes through. */
+/** A sentence the app itself wrote for people ("Allow photo access in Settings…"): shown as written. */
+export class Said extends Error {}
+
+/** Machine faults always get fixed copy. Only our API's written validation, and Said, pass through. */
 export function describeError(error: unknown) {
   const e = (error && typeof error === "object" ? error : {}) as Failure;
   const status = e.status;
-  const kind = status === 0 ? "network" : status === 401 || status === 403 ? "auth" : status && status >= 500 ? "server" : status === 400 || status === 409 ? "validation" : "app";
+  const said = error instanceof Said && !!e.message;
+  const kind = said ? "validation" : status === 0 ? "network" : status === 401 || status === 403 ? "auth" : status && status >= 500 ? "server" : status === 400 || status === 409 ? "validation" : "app";
   let message = "Something went wrong. Please try again.";
   if (kind === "network") message = "We couldn't connect. Check your internet and try again.";
   else if (kind === "server") message = "Something went wrong on our side. Please try again.";
@@ -27,6 +31,7 @@ export function describeError(error: unknown) {
   else if (status === 403) message = "You don't have access to that.";
   else if (status === 404) message = "We couldn't find that. It may have been removed.";
   else if (status === 429) message = "Too many tries. Wait a minute, then try again.";
+  else if (said) message = e.message!;
   else if (kind === "validation" && e.message && !/Traceback|Exception|\bat .+:\d+|HTTP \d|[<>]/.test(e.message)) message = e.message;
   return {
     message: tr(message),

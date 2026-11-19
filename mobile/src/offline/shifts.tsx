@@ -5,6 +5,7 @@ import { timesheet, type ShiftInput } from "@/api";
 import { ApiError } from "@/api/client";
 import { readPrivate, writePrivate, usePrivateScope, usePrivateState } from "@/storage/private";
 import { syncClockActions, usePendingClockActions } from "./clock";
+import { describeError } from "@/api/errors";
 
 export type PendingShift = { id: string; input: ShiftInput; created: string; error?: string; review?: boolean };
 const KEY = "pending-shifts";
@@ -38,7 +39,7 @@ export async function syncShifts(scope: string, isCurrent: () => boolean) {
         await removePending(scope, row.id);
       } catch (error) {
         if (!(error instanceof ApiError) || error.status === 0 || error.status === 401 || error.status >= 500) return;
-        await change(scope, rows => rows.map(item => item.id === row.id ? { ...item, review: true, error: error.message } : item));
+        await change(scope, rows => rows.map(item => item.id === row.id ? { ...item, review: true, error: describeError(error).message } : item));
       }
     }
   } finally { syncing.delete(scope); }

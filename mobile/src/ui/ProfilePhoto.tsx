@@ -7,6 +7,7 @@ import type { FilePart } from "@/api/client";
 import { Avatar } from "./Avatar";
 import { choose, confirm, notify } from "./confirm";
 import { useTheme } from "./theme";
+import { Said, errorMessage } from "@/api/errors";
 
 export function ProfilePhoto({ me, onChange, size = 80, ring }: { me: Me; onChange: (me: Me) => void; size?: number; ring?: string }) {
   // `ring`: a band of the card's colour round the face, for when it sits over a cover.
@@ -18,16 +19,16 @@ export function ProfilePhoto({ me, onChange, size = 80, ring }: { me: Me; onChan
     if (inFlight.current) return;
     inFlight.current = true; setBusy(true);
     try { await work(); }
-    catch (error: any) { notify("Couldn't update your photo", error?.message || "Please try again."); }
+    catch (error: any) { notify("Couldn't update your photo", errorMessage(error)); }
     finally { inFlight.current = false; setBusy(false); }
   };
   const pick = (from: "camera" | "library") => run(async () => {
     const options: ImagePicker.ImagePickerOptions = { mediaTypes: ["images"], allowsEditing: true, aspect: [1, 1], quality: .9 };
-    if (from === "camera" && !(await ImagePicker.requestCameraPermissionsAsync()).granted) throw new Error("The camera isn't allowed. Choose from the library instead, or allow it in Settings.");
+    if (from === "camera" && !(await ImagePicker.requestCameraPermissionsAsync()).granted) throw new Said("The camera isn't allowed. Choose from the library instead, or allow it in Settings.");
     const result = from === "camera" ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
     if (result.canceled) return;
     const asset = result.assets?.[0];
-    if (!asset?.uri) throw new Error("No photo was selected. Please choose another image.");
+    if (!asset?.uri) throw new Said("No photo was selected. Please choose another image.");
     const name = asset.fileName || "photo.jpg", type = asset.mimeType || "image/jpeg";
     const file: FilePart = { uri: asset.uri, name, type };
     onChange(await api.setPhoto(file));

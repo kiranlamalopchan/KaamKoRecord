@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { requireOptionalNativeModule } from "expo";
 import { inExpoGo } from "@/push/register";
 import type { ClockState, Planned } from "@/api/types";
 import { describeError, logError } from "@/api/errors";
@@ -10,6 +11,9 @@ let queue: Promise<void> = Promise.resolve();
 /** Serial updates keep a late refresh from putting a signed-out person's shift back. */
 export function syncWorkWidgets(clock: ClockState | null, shifts: Planned[] = [], lock = true): Promise<void> {
   if (inExpoGo || (Platform.OS !== "ios" && Platform.OS !== "android")) return Promise.resolve();
+  // A build without the widgets module (Expo Go on Android, say) has no widget to
+  // update; loading the widget code there throws before any try can catch it.
+  if (!requireOptionalNativeModule("ExpoWidgets")) return Promise.resolve();
   const props = widgetProps(clock, shifts[0]);
   const key = JSON.stringify([props, !!clock?.shift, lock]);
   queue = queue.then(async () => {

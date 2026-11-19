@@ -21,6 +21,7 @@ from django.views.decorators.http import require_POST
 from mywork.http import safe_next as _safe_next
 
 from apps.accounts.models import Friendship
+from apps.moderation.roles import is_admin, is_moderator
 
 from . import notify
 from .forms import CommentForm, NoticeForm
@@ -560,6 +561,8 @@ def person(request, username):
         notices=notices,
         blocked=blocked,
         is_me=profile.pk == request.user.pk,
+        is_moderator=is_moderator(profile),
+        can_make_moderator=is_admin(request.user) and not profile.is_staff and profile.is_active,
         # What the board did back: reactions on their notices and on their
         # comments are the same compliment, so they are counted as one.
         received=(

@@ -13,12 +13,13 @@ import * as Device from "expo-device";
 import * as SecureStore from "expo-secure-store";
 
 import { me } from "@/api";
+import { isRunningInExpoGo } from "expo";
 
 type NotificationsModule = typeof import("expo-notifications");
 let loaded: NotificationsModule | null | undefined;
 
 /** Expo Go (the store app running our JS) rather than a build of our own. */
-export const inExpoGo = Constants.appOwnership === "expo" || Constants.executionEnvironment === "storeClient";
+export const inExpoGo = isRunningInExpoGo() || Constants.appOwnership === "expo" || Constants.executionEnvironment === "storeClient";
 
 /** The notifications module, or `null` where there is no push: Expo Go on Android, a build without it. */
 export function notifications(): NotificationsModule | null {
@@ -106,12 +107,16 @@ export async function askForPush(): Promise<boolean> {
   const Notifications = notifications();
   if (!Notifications || !Device.isDevice) return false;
   if (Platform.OS === "android") {
+    // Notifications play the phone's own sound, on this one channel.
     await Notifications.setNotificationChannelAsync("default", {
       name: "KaamKoRecord",
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#059669",
     });
+    // A test build once made an "alerts" channel with a tone of our own;
+    // nothing is sent there any more, so it goes from the phone's settings.
+    await Notifications.deleteNotificationChannelAsync("alerts").catch(() => {});
   }
   const current = await Notifications.getPermissionsAsync();
   if (current.status === "granted") return true;
@@ -187,4 +192,18 @@ export async function setBadge(count: number): Promise<void> {
   } catch {
     /* not every launcher shows one */
   }
+}
+
+/**
+ * How a notification shows when it arrives with the app open and in front
+ * (the handler in app/_layout.tsx runs only then; closed or locked, the phone
+ * shows it as usual). The running shift is a standing line for the lock
+ * screen — with the app open it's on the clock in front of you. Anything else
+ * is only counted: the badges move, but no banner, no sound, and nothing left
+ * in the list or on the lock screen.
+ */
+export function whileOpen(data: Record<string, unknown> | null | undefined) {
+  return data?.status
+    ? { shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }
+    : { shouldShowBanner: false, shouldShowList: false, shouldPlaySound: false, shouldSetBadge: true };
 }

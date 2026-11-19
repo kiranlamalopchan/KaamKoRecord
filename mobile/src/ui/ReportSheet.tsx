@@ -17,6 +17,7 @@ import { Button } from "./index";
 import { confirm, notify } from "./confirm";
 import { success, tick } from "./haptics";
 import { radius, sp, useTheme } from "./theme";
+import { errorMessage } from "@/api/errors";
 
 export type ReportTarget = {
   kind: ReportKind;
@@ -61,7 +62,7 @@ export function ReportSheet({ target, onClose, onBlocked }: { target: ReportTarg
       success();
       setSent(true);
     } catch (e: any) {
-      notify("Couldn't report that", e?.message);
+      notify("Couldn't report that", errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -77,7 +78,7 @@ export function ReportSheet({ target, onClose, onBlocked }: { target: ReportTarg
         close();
         onBlocked?.();
       } catch (e: any) {
-        notify("Couldn't block them", e?.message);
+        notify("Couldn't block them", errorMessage(e));
       }
     });
   };

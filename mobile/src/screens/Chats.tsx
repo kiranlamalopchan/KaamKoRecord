@@ -2,6 +2,12 @@
  * Chats (a tab of its own): every conversation, direct and group, newest activity first and
  * pinned ones on top. More load as the list is scrolled; the realtime
  * stream keeps previews and order current without a pull.
+ *
+ * A plain list of people rather than cards: a big round photo (ringed while
+ * they have a story up — tap it to watch), their name and the last words,
+ * the time, and on the right what is waiting: a dot for unread, their tiny
+ * photo once they have read yours. Archived chats live one row down the
+ * list, on a screen of their own (`archived`).
  */
 import React, { useDeferredValue, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
@@ -20,7 +26,6 @@ import { useLayout } from "@/ui/layout";
 import { SkeletonRows } from "@/ui/Skeleton";
 import { radius, sp, useTheme } from "@/ui/theme";
 
-type Filter = "all" | "unread" | "archived";
 
 export function previewOf(row: ConvoSummary, tr: ReturnType<typeof useT>): string {
   const last = row.last;
@@ -32,16 +37,16 @@ export function previewOf(row: ConvoSummary, tr: ReturnType<typeof useT>): strin
   return who ? `${who}: ${words}` : words;
 }
 
-export default function Chats() {
+export default function Chats({ archived = false }: { archived?: boolean }) {
   const t = useTheme(), tr = useT();
   const router = useRouter();
   const layout = useLayout();
   const changed = useChatChanged();
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
   const [actionError, setActionError] = useState<unknown>(null);
   const query = useDeferredValue(search.trim());
-  const q = useChatInbox({ q: query || undefined, unread: filter === "unread", archived: filter === "archived" });
+  const q = useChatInbox({ q: query || undefined, archived });
+  const archivedCount = q.data?.pages[0]?.archived ?? 0;
   const rows = q.data?.pages.flatMap(page => page.conversations) ?? [];
   // The spinner follows a pull only. Background reloads (switching to this tab, a new message
   // arriving) pass unseen: shown, iOS could leave the spinner stuck over the list.
@@ -82,27 +87,19 @@ export default function Chats() {
     <View style={{ gap: sp[3], paddingBottom: sp[3] }}>
       <View style={styles.heading}>
         <View style={{ flex: 1 }}>
-          <Text accessibilityRole="header" style={{ color: t.text, fontSize: 30, fontWeight: "800" }}>{tr("Chats")}</Text>
-          <Text style={{ color: t.muted, fontSize: 14 }}>{tr("Private conversations and groups with your friends.")}</Text>
+          <Text accessibilityRole="header" style={{ color: t.text, fontSize: 30, fontWeight: "800" }}>{archived ? tr("Archived chats") : tr("Chats")}</Text>
+          <Text style={{ color: t.muted, fontSize: 14 }}>{archived ? tr("Hidden from your chats until a new message arrives.") : tr("Private conversations and groups with your friends.")}</Text>
         </View>
-        <Pressable onPress={() => router.push("/messages/new" as never)} accessibilityRole="button" accessibilityLabel={tr("New message")} testID="chat-new"
+        {archived ? null : <Pressable onPress={() => router.push("/messages/new" as never)} accessibilityRole="button" accessibilityLabel={tr("New message")} testID="chat-new"
           style={({ pressed }) => [styles.compose, { backgroundColor: pressed ? t.surface2 : t.surface, borderColor: t.line }]}>
           <Ionicons name="create-outline" size={24} color={t.text} />
-        </Pressable>
+        </Pressable>}
       </View>
       <View style={[styles.search, { backgroundColor: t.surface, borderColor: t.line }]}>
         <Ionicons name="search-outline" size={20} color={t.muted} />
         <TextInput value={search} onChangeText={setSearch} placeholder={tr("Search people, groups and messages")} placeholderTextColor={t.muted}
           accessibilityLabel={tr("Search conversations")} returnKeyType="search" style={[styles.searchInput, { color: t.text }]} />
         {search ? <Pressable onPress={() => setSearch("")} accessibilityRole="button" accessibilityLabel={tr("Clear search")} style={styles.clear}><Ionicons name="close-circle" size={20} color={t.muted} /></Pressable> : null}
-      </View>
-      <View style={styles.filters} accessibilityRole="tablist">
-        {(["all", "unread", "archived"] as const).map(value => (
-          <Pressable key={value} onPress={() => setFilter(value)} accessibilityRole="tab" accessibilityState={{ selected: filter === value }}
-            style={({ pressed }) => [styles.filter, { backgroundColor: filter === value ? t.brand : pressed ? t.surface2 : t.surface, borderColor: filter === value ? t.brand : t.line }]}>
-            <Text style={{ color: filter === value ? t.brandInk : t.text2, fontWeight: "700", fontSize: 13 }}>{tr(value === "all" ? "All" : value === "unread" ? "Unread" : "Archived")}</Text>
-          </Pressable>
-        ))}
       </View>
       {q.error ? <ErrorBanner error={q.error} onRetry={q.refetch} /> : null}
       {actionError ? <ErrorBanner error={actionError} /> : null}
@@ -111,7 +108,7 @@ export default function Chats() {
   );
 
   return (
-    <Screen>
+    <Screen back={archived} backLabel={archived ? tr("Chats") : undefined}>
       <WithDepth>{(under) => (
         <FlatList
           data={rows}
@@ -126,54 +123,67 @@ export default function Chats() {
           onEndReachedThreshold={0.5}
           initialNumToRender={14}
           windowSize={11}
-          ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={t.brand} style={{ marginVertical: sp[4] }} /> : undefined}
+          ListFooterComponent={q.isFetchingNextPage ? <ActivityIndicator color={t.brand} style={{ marginVertical: sp[4] }} />
+            : !archived && !query && archivedCount > 0 ? (
+              <Pressable onPress={() => router.push("/messages/archived" as never)} accessibilityRole="button" testID="chat-archived"
+                accessibilityLabel={tr("Archived chats, {n}", { n: archivedCount })}
+                style={({ pressed }) => [styles.row, { backgroundColor: pressed ? t.surface2 : "transparent" }]}>
+                <View style={[styles.archivedIcon, { backgroundColor: t.surface2 }]}><Ionicons name="archive" size={26} color={t.text2} /></View>
+                <View style={styles.words}>
+                  <Text style={{ color: t.text, fontSize: 17, fontWeight: "700" }}>{tr("Archived chats")}</Text>
+                  <Text style={{ color: t.muted, fontSize: 14 }}>{archivedCount === 1 ? tr("1 conversation") : tr("{n} conversations", { n: archivedCount })}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={t.muted} />
+              </Pressable>
+            ) : undefined}
           ListEmptyComponent={q.data ? (
-            <Empty icon={query ? "search-outline" : "chatbubbles-outline"}
-              title={query ? tr("No conversations found") : filter === "archived" ? tr("No archived conversations") : filter === "unread" ? tr("You're all caught up") : tr("No messages yet")}
-              sub={query ? tr("Try a name or a word from a message.") : tr("Start a private conversation or a group with your friends.")}
-              action={!query && filter === "all" ? <Button title={tr("New message")} icon="create-outline" onPress={() => router.push("/messages/new" as never)} /> : undefined} />
+            <Empty icon={query ? "search-outline" : archived ? "archive-outline" : "chatbubbles-outline"}
+              title={query ? tr("No conversations found") : archived ? tr("No archived conversations") : tr("No messages yet")}
+              sub={query ? tr("Try a name or a word from a message.") : archived ? undefined : tr("Start a private conversation or a group with your friends.")}
+              action={!query && !archived ? <Button title={tr("New message")} icon="create-outline" onPress={() => router.push("/messages/new" as never)} /> : undefined} />
           ) : undefined}
           renderItem={({ item: row, index }) => {
             const unread = (row.unread ?? 0) > 0;
             const avatar = row.person || ({ username: row.id, name: row.title, initial: row.initial, hue: row.hue, photo: row.photo } as never);
-            const first = index === 0, last = index === rows.length - 1;
+            const mine = !!row.last?.mine;
+            const when = row.last ? (new Date(row.last.at).toDateString() === new Date().toDateString() ? row.last.time : row.last.day) : "";
+            const ring = row.story === "unseen" ? t.brand : row.story === "seen" ? t.line : "transparent";
+            const watch = row.story && row.person ? () => router.push(`/stories/${encodeURIComponent(row.person!.username)}` as never) : undefined;
             return (
-              <SwipeRow
-                left={swipeRight(row)}
-                right={swipeLeft(row)}
-                openRow={openRow}
-                style={{
-                  borderTopLeftRadius: first ? radius.lg : 0, borderTopRightRadius: first ? radius.lg : 0,
-                  borderBottomLeftRadius: last ? radius.lg : 0, borderBottomRightRadius: last ? radius.lg : 0,
-                }}
-              >
+              <SwipeRow left={swipeRight(row)} right={swipeLeft(row)} openRow={openRow} style={{ borderRadius: radius.lg }}>
               <Pressable onPress={() => router.push(`/messages/c/${row.id}` as never)} onLongPress={() => manage(row)}
                 accessibilityRole="button"
-                accessibilityLabel={[row.title, unread ? tr("{n} unread", { n: row.unread ?? 0 }) : "", previewOf(row, tr), row.last?.day].filter(Boolean).join(", ")}
+                accessibilityLabel={[row.title, unread ? tr("{n} unread", { n: row.unread ?? 0 }) : "", previewOf(row, tr), when].filter(Boolean).join(", ")}
                 accessibilityActions={[{ name: "longpress", label: tr("Conversation options") }]}
                 onAccessibilityAction={() => manage(row)}
                 testID={`chat-row-${row.person?.username || row.id}`}
                 accessibilityHint={tr("Swipe for quick actions, or hold for conversation options")}
-                style={({ pressed }) => [styles.row, {
-                  backgroundColor: pressed ? t.surface2 : t.surface, borderColor: t.line,
-                  borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth,
-                }]}>
-                <View>
-                  <Avatar person={avatar} size={52} />
-                  {row.person?.is_live ? <View style={[styles.live, { backgroundColor: t.brand, borderColor: t.surface }]} /> : null}
-                  {row.kind === "group" ? <View style={[styles.groupMark, { backgroundColor: t.surface2, borderColor: t.surface }]}><Ionicons name="people" size={11} color={t.text2} /></View> : null}
-                </View>
+                style={({ pressed }) => [styles.row, { backgroundColor: pressed ? t.surface2 : t.bg }]}>
+                <Pressable onPress={watch} disabled={!watch} accessibilityRole={watch ? "button" : undefined}
+                  accessibilityLabel={watch ? tr("Watch {name}'s story", { name: row.title }) : undefined} testID={watch ? "chat-story-ring" : undefined}>
+                  <View style={[styles.ring, { borderColor: ring }]}>
+                    <Avatar person={avatar} size={56} />
+                  </View>
+                  {row.person?.is_live ? <View style={[styles.live, { backgroundColor: t.brand, borderColor: t.bg }]} /> : null}
+                  {row.kind === "group" ? <View style={[styles.groupMark, { backgroundColor: t.surface2, borderColor: t.bg }]}><Ionicons name="people" size={11} color={t.text2} /></View> : null}
+                </Pressable>
                 <View style={styles.words}>
                   <View style={styles.nameLine}>
-                    <Text style={{ color: t.text, fontSize: 16, fontWeight: unread ? "800" : "600", flex: 1 }} numberOfLines={1}>{row.title}</Text>
+                    <Text style={{ color: t.text, fontSize: 17, fontWeight: unread ? "800" : "600", flex: 1 }} numberOfLines={1}>{row.title}</Text>
                     {row.pinned ? <Ionicons name="pin" size={13} color={t.muted} accessibilityLabel={tr("Pinned")} /> : null}
                     {row.muted ? <Ionicons name="notifications-off-outline" size={14} color={t.muted} accessibilityLabel={tr("Muted")} /> : null}
-                    <Text style={{ color: unread ? t.brand : t.muted, fontSize: 12, fontWeight: unread ? "700" : "400" }}>{row.last ? (new Date(row.last.at).toDateString() === new Date().toDateString() ? row.last.time : row.last.day) : ""}</Text>
+                    <Text style={{ color: unread ? t.brand : t.muted, fontSize: 13, fontWeight: unread ? "700" : "400" }}>{when}</Text>
                   </View>
                   <View style={styles.previewLine}>
-                    {row.last?.mine && row.last.status ? <Ionicons name={row.last.status === "read" ? "checkmark-done" : row.last.status === "delivered" ? "checkmark-done-outline" : "checkmark"} size={15} color={row.last.status === "read" ? t.brand : t.muted} /> : null}
-                    <Text style={{ color: unread ? t.text : t.muted, fontSize: 14, fontWeight: unread ? "600" : "400", flex: 1 }} numberOfLines={1}>{previewOf(row, tr)}</Text>
-                    {unread ? <View style={[styles.badge, { backgroundColor: row.muted ? t.muted : t.brand }]}><Text style={{ color: t.brandInk, fontSize: 11, fontWeight: "800" }}>{(row.unread ?? 0) > 99 ? "99+" : row.unread}</Text></View> : null}
+                    <Text style={{ color: unread ? t.text : t.muted, fontSize: 15, fontWeight: unread ? "700" : "400", flex: 1 }} numberOfLines={1}>{previewOf(row, tr)}</Text>
+                    {unread ? (
+                      <View style={[styles.dot, { backgroundColor: row.muted ? t.muted : t.brand }]} accessibilityLabel={tr("{n} unread", { n: row.unread ?? 0 })} testID="chat-unread-dot" />
+                    ) : mine && row.last?.status === "read" && row.person ? (
+                      <View accessibilityLabel={tr("Seen")} testID="chat-seen"><Avatar person={row.person} size={16} /></View>
+                    ) : mine && row.last?.status ? (
+                      <Ionicons name={row.last.status === "read" ? "checkmark-done-circle" : row.last.status === "delivered" ? "checkmark-circle" : "checkmark-circle-outline"} size={16}
+                        color={row.last.status === "read" ? t.brand : t.muted} accessibilityLabel={tr(row.last.status === "read" ? "Seen" : row.last.status === "delivered" ? "Delivered" : "Sent")} />
+                    ) : null}
                   </View>
                 </View>
               </Pressable>
@@ -254,13 +264,14 @@ const styles = StyleSheet.create({
   search: { minHeight: 48, borderRadius: radius.xl, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: sp[2] },
   searchInput: { flex: 1, fontSize: 16, paddingVertical: 10 },
   clear: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginRight: -12 },
-  filters: { flexDirection: "row", gap: sp[2] },
-  filter: { minHeight: 44, justifyContent: "center", paddingHorizontal: 16, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth },
-  row: { flexDirection: "row", alignItems: "center", gap: sp[3], paddingHorizontal: sp[4], paddingVertical: sp[3], minHeight: 78 },
+  row: { flexDirection: "row", alignItems: "center", gap: sp[3], paddingHorizontal: sp[2], paddingVertical: 10, minHeight: 80 },
+  // A gap between the photo and its story ring, as the stories on Home have.
+  ring: { borderWidth: 2.5, borderRadius: 999, padding: 2 },
+  dot: { width: 11, height: 11, borderRadius: 6 },
+  archivedIcon: { width: 65, height: 65, borderRadius: radius.lg, alignItems: "center", justifyContent: "center" },
   words: { flex: 1, minWidth: 0, gap: 5 },
   nameLine: { flexDirection: "row", alignItems: "center", gap: 6 },
   previewLine: { flexDirection: "row", alignItems: "center", gap: 4 },
-  badge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  live: { position: "absolute", right: -1, bottom: -1, width: 14, height: 14, borderRadius: 7, borderWidth: 2 },
-  groupMark: { position: "absolute", right: -2, bottom: -2, width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  live: { position: "absolute", right: 3, bottom: 3, width: 15, height: 15, borderRadius: 8, borderWidth: 2.5 },
+  groupMark: { position: "absolute", right: 1, bottom: 1, width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: "center", justifyContent: "center" },
 });

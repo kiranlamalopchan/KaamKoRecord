@@ -42,6 +42,13 @@ PAYDAY_ONCE = timedelta(days=3)
 # shift, so this only ever fires for something that has gone wrong.
 LONG_SHIFT = timedelta(hours=10)
 
+# Working this long in one go, with no break, earns a nudge to take one.
+BREAK_AFTER = timedelta(hours=5)
+
+# A running shift this close to its workplace's cap gets a heads-up, so the
+# limit is never crossed by surprise half-way through a shift.
+LIMIT_SOON = timedelta(minutes=30)
+
 # How often either reminder is allowed to interrupt about the same thing.
 # The row is rewritten on every sweep so the hours in it stay current, but the
 # phone only buzzes again once this much quiet has passed — a forgotten
@@ -221,7 +228,77 @@ def payday_summaries(now=None):
     return made
 
 
+def break_reminders(now=None):
+    """
+    Nudge anyone who has worked BREAK_AFTER in one stretch without a break.
+
+    The stretch starts at clock-in, or at the end of the last break. One nudge
+    per stretch: taking a break and working another long stretch earns a new
+    one, sitting on the same stretch does not buzz again.
+    """
+    now = now or timezone.now()
+    made = []
+    shifts = (
+        Shift.objects.filter(status=Shift.Status.WORKING)
+        .select_related("user", "user__profile", "workplace")
+        .prefetch_related("breaks")
+    )
+    for shift in shifts:
+        ends = [b.break_end for b in shift.breaks.all() if b.break_end]
+        stretch_from = max([shift.clock_in, *ends])
+        stretch = now - stretch_from
+        if stretch < BREAK_AFTER:
+            continue
+        where = shift.workplace.name if shift.workplace else "work"
+        notification = notify(
+            shift.user,
+            Kind.TIMESHEET,
+            "Time for a break",
+            body=f"You've worked {hm_words(stretch)} at {where} without a break.",
+            url=reverse("timeclock:dashboard"),
+            dedupe_key=f"timesheet:break:{shift.pk}:{int(stretch_from.timestamp())}",
+        )
+        if notification is not None:
+            made.append(notification)
+    return made
+
+
+def limit_soon_reminders(now=None):
+    """
+    While a shift runs, say when its workplace's cap is LIMIT_SOON away.
+
+    `limit_reminders` speaks about the period; this one is about the shift
+    going on right now, so it can be acted on: finish up before the cap.
+    Once per shift.
+    """
+    now = now or timezone.now()
+    made = []
+    shifts = (
+        Shift.objects.filter(status__in=Shift.OPEN_STATUSES, workplace__hours_limit__isnull=False)
+        .select_related("user", "user__profile", "workplace")
+        .prefetch_related("workplace__payments")
+    )
+    for shift in shifts:
+        today = _their_now(shift.user, now).date()
+        limit = _limit_for(shift.user, shift.workplace, today)
+        if limit is None or limit["state"] == "over" or not timedelta() < limit["remaining"] <= LIMIT_SOON:
+            continue
+        cap, left = hm_words(limit["cap"]), hm_words(limit["remaining"])
+        notification = notify(
+            shift.user,
+            Kind.TIMESHEET,
+            f"{left} left before your limit",
+            body=f"At {shift.workplace.name} you've worked {hm_words(limit['used'])} of {cap} this {limit['period_label']}.",
+            url=reverse("timeclock:dashboard"),
+            dedupe_key=f"timesheet:limit-soon:{shift.pk}",
+        )
+        if notification is not None:
+            made.append(notification)
+    return made
+
+
 def run_all(now=None):
     """Every reminder, which is what the scheduled task runs."""
     now = now or timezone.now()
-    return open_shift_reminders(now) + limit_reminders(timezone.localdate(now)) + payday_summaries(now)
+    return (open_shift_reminders(now) + break_reminders(now) + limit_soon_reminders(now)
+            + limit_reminders(timezone.localdate(now)) + payday_summaries(now))

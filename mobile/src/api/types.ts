@@ -10,6 +10,8 @@ export type Person = {
   is_me: boolean;
   /** One of the people who run the board — wears a mark beside the name. */
   is_admin: boolean;
+  /** A moderator an admin chose (admins are is_admin instead): the outlined badge. */
+  is_moderator?: boolean;
 };
 
 export type Me = Person & {
@@ -18,6 +20,8 @@ export type Me = Person & {
   phone: string;
   address: string;
   is_staff: boolean;
+  /** Admins and the moderators they chose: the Reports screen is theirs. */
+  is_moderator?: boolean;
   has_password?: boolean;
   social_providers?: ("google" | "apple")[];
   /** Granted by the server only to authorised festival administrators. */
@@ -88,12 +92,25 @@ export type PersonPage = {
   blocked: boolean;
   /** Friends, with no block either way — whether the Message button belongs here. */
   can_message?: boolean;
+  is_moderator?: boolean;
+  /** You're an admin and they aren't: the Make moderator button. */
+  can_make_moderator?: boolean;
   since: string;
   notice_count: number;
   comment_count: number;
   received: number;
   given: number;
   notices: Notice[];
+  /** Where the two of you stand — which button the head of the page shows. */
+  friendship?: "me" | "friends" | "sent" | "received" | "none";
+  /** The pending request either way (sent or received), to cancel or accept. */
+  friend_request?: number | null;
+  friends_count?: number;
+  /** Friends you share: how many, and the first few faces. */
+  mutual_count?: number;
+  mutual?: Person[];
+  /** A story you may watch: the ring around their face. */
+  story?: "unseen" | "seen" | null;
 };
 
 export type FriendRequest = { id: number; person: Person };
@@ -209,6 +226,8 @@ export type WorkplaceBrief = { id: number; name: string; hue: number; css: strin
 export type Workplace = WorkplaceBrief & {
   address: string; hourly_rate: number | null; tax_rate: number | null; in_cash: boolean; withholds: boolean;
   saturday_multiplier?: number; sunday_multiplier?: number; public_holiday_multiplier?: number; overtime_after_hours?: number | null; overtime_multiplier?: number;
+  /** A second step of overtime: double time from this many hours into a shift. */
+  double_time_after_hours?: number | null; double_time_multiplier?: number;
   // Optional: a server from before the ATO scales sends neither.
   tax_scale?: TaxScale; study_loan?: boolean; tax_label?: string;
   paid_in: "BANK" | "CASH"; pay_cycle: "IRREGULAR" | "WEEK" | "FORTNIGHT" | "MONTH"; pay_cycle_label: string;
@@ -266,6 +285,8 @@ export type ClockState = {
     running_break: { start: string; start_at: string; duration: Duration } | null;
   } | null;
   target_hours: number; long_shift: boolean; limit: LimitCard | null;
+  /** Every workplace's hours since the week began, as of server_now (newer servers). */
+  week?: { worked: Duration } | null;
   /** A cash job with no cap: the hours owed for, where the cap bar would be. */
   tally: CashTally | null;
   message?: string; finished?: number; replayed?: boolean;
@@ -288,6 +309,7 @@ export type WorkplacesPage = {
 export type WorkplaceInput = {
   name: string; address: string; color: number | ""; pay_cycle: string; paid_in: string; hourly_rate: string; tax_rate: string;
   saturday_multiplier?: string; sunday_multiplier?: string; public_holiday_multiplier?: string; overtime_after_hours?: string; overtime_multiplier?: string;
+  double_time_after_hours?: string; double_time_multiplier?: string;
   tax_scale?: string; study_loan?: boolean;
   hours_limit: string; limit_period: string; week_starts_on: number; fortnight_starts_on: number; fortnight_phase: string; month_starts_on: number | string; is_default: boolean;
 };
@@ -363,6 +385,8 @@ export type ConvoMessage = Omit<ChatMessage, "status" | "reply"> & {
 export type ConvoSummary = {
   id: string; kind: "direct" | "group"; title: string; person: Person | null; photo: string | null; initial: string; hue: number;
   pinned: boolean; muted: boolean; archived: boolean; role: "admin" | "member"; member_count?: number; unread?: number;
+  /** In the chat list: a ring round their photo while they have a story up. */
+  story?: "unseen" | "seen" | null;
   last?: {
     id: number; body: string; mine: boolean; sender: string; at: string; time: string; day: string;
     unsent: boolean; event: string | null; attachment: string | null; status: "sent" | "delivered" | "read" | null;
@@ -376,7 +400,7 @@ export type ConvoPage = {
   conversation: ConvoSummary; messages: ConvoMessage[]; more: boolean | null; more_newer: boolean; first_unread: number | null;
   can_send: boolean; why_not: string; max_length: number; limits: ChatLimits; typing: string[];
 };
-export type Inbox = { conversations: ConvoSummary[]; next: number | null; unread: number };
+export type Inbox = { conversations: ConvoSummary[]; next: number | null; unread: number; /** First page only: how many chats are archived. */ archived?: number };
 export type ChatMember = Person & { role: "admin" | "member" };
 export type GalleryItem = ChatAttachment & { message_id: number; at: string };
 export type LinkItem = { url: string; message_id: number; at: string };
@@ -402,3 +426,23 @@ export type PayslipCheck = {
 
 /** The next screenful of one Friends list; `next` is the offset after it, or null at the end. */
 export type PeoplePage = { people: Person[]; total: number; next: number | null };
+
+/** One reported thing in the moderators' queue (apps/api/views/moderation.py `report_row`). */
+export type ModerationReport = {
+  id: number;
+  kind: "notice" | "comment" | "story" | "user" | "message";
+  kind_label: string;
+  reason: string;
+  reason_label: string;
+  note: string;
+  excerpt: string;
+  reporter: Person;
+  accused: Person | null;
+  /** How many open reports there are of this same thing. */
+  reports: number;
+  /** Whether it can still be seen. */
+  up: boolean;
+  can_take_down: boolean;
+  created: string;
+  handled: string | null;
+};

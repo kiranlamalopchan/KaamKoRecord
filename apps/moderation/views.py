@@ -100,3 +100,62 @@ def report(request):
         "next": _back(request, reverse("home")),
         "already_blocked": who is not None and Block.is_blocking(request.user, who),
     })
+
+
+# ---- running the board -------------------------------------------------------------
+
+@login_required
+def reports(request):
+    """
+    What people reported, for moderators: one line per reported thing, with
+    Take down and Dismiss. Everyone else gets a 404 — a page only moderators
+    use is a page only moderators need to know exists.
+    """
+    from .roles import is_moderator
+    from .services import DISMISS, TAKE_DOWN, is_up, resolve
+
+    if not is_moderator(request.user):
+        raise Http404
+    if request.method == "POST":
+        report = get_object_or_404(Report, pk=request.POST.get("report") or 0)
+        action = request.POST.get("action")
+        if action not in (TAKE_DOWN, DISMISS):
+            messages.error(request, "Choose take down or dismiss.")
+        else:
+            try:
+                resolve(report, action)
+                messages.success(request, "Taken down." if action == TAKE_DOWN else "Report dismissed.")
+            except ValueError as why:
+                messages.error(request, str(why))
+        return redirect(f"{reverse('moderation:reports')}?status={request.POST.get('status') or 'open'}")
+
+    handled = request.GET.get("status") == "handled"
+    rows = Report.objects.filter(handled_at__isnull=not handled).select_related(
+        "reporter", "reporter__profile", "accused", "accused__profile")[:200]
+    lines, seen = [], set()
+    for report in rows:
+        key = (report.kind, report.target_id)
+        if not handled and key in seen:
+            continue
+        seen.add(key)
+        count = Report.objects.filter(kind=report.kind, target_id=report.target_id, handled_at__isnull=True).count()
+        lines.append({"report": report, "count": count, "up": is_up(report), "can_take_down": report.kind != Kind.USER})
+    return render(request, "moderation/reports.html", {"lines": lines, "handled": handled})
+
+
+@login_required
+@require_POST
+def moderator(request, username):
+    """An admin makes somebody a moderator (on=1) or stops it (on=0)."""
+    from .roles import is_admin, set_moderator
+
+    if not is_admin(request.user):
+        raise Http404
+    them = get_object_or_404(User, username=username, is_active=True)
+    if them.is_staff:
+        messages.error(request, f"{them.get_username()} is an admin, and admins already moderate.")
+    else:
+        on = request.POST.get("on") == "1"
+        set_moderator(them, on)
+        messages.success(request, f"{them.get_username()} is now a moderator." if on else f"{them.get_username()} is no longer a moderator.")
+    return redirect(_back(request, reverse("notices:person", args=[them.get_username()])))

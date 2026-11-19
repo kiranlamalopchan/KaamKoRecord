@@ -14,7 +14,7 @@ import type {
   Friends as FriendsPage, PeoplePage, PhotoRead, PluImportable, PluImported,
   Home, HolidayCard, Me, Notice, Notification, Page, Person, PersonPage, PluItem, ReactionTally,
   Reactors, Story, StoryPerson, TrayRow, Visibility,
-  BlockedPerson, ReportKind, ReportReason,
+  BlockedPerson, ModerationReport, ReportKind, ReportReason,
   ChatMessage, ChatThread, ChatThreads, PayslipCheck, PlannedInput, RosterPage,
   ChatMember, ConvoMessage, ConvoPage, ConvoSummary, GalleryItem, Inbox, LinkItem,
 } from "./types";
@@ -124,6 +124,25 @@ export function useNotice(id: number) {
 
 export function usePerson(username: string) {
   return useQuery({ queryKey: ["person", username], queryFn: () => board.person(username) });
+}
+
+/** Running the board: admins choose moderators, moderators answer reports. */
+export const moderation = {
+  setModerator: (username: string, on: boolean) =>
+    api<{ is_moderator: boolean; detail: string }>(`people/${encodeURIComponent(username)}/moderator/`, { method: on ? "POST" : "DELETE" }),
+  reports: (status: "open" | "handled", page = 1) =>
+    api<Page<ModerationReport> & { open: number }>("moderation/reports/", { query: { status, page } }),
+  resolve: (id: number, action: "take_down" | "dismiss") =>
+    api<{ report: ModerationReport; closed: number; detail: string }>(`moderation/reports/${id}/`, { method: "POST", body: { action } }),
+};
+
+export function useModerationReports(status: "open" | "handled") {
+  return useInfiniteQuery({
+    queryKey: ["moderation-reports", status],
+    queryFn: ({ pageParam }) => moderation.reports(status, pageParam),
+    initialPageParam: 1,
+    getNextPageParam: (last) => last.next ?? undefined,
+  });
 }
 
 /** Blocking a person and reporting a post — apps.moderation on the server. */

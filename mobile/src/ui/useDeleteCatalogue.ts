@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useRouter } from "expo-router";
 import { catalogue, useCatalogueChanged } from "@/api/catalogue";
 import { confirm } from "./confirm";
+import { errorMessage } from "@/api/errors";
 
 export function useDeleteCatalogue() {
   const router = useRouter(), changed = useCatalogueChanged();
@@ -14,7 +15,7 @@ export function useDeleteCatalogue() {
         await catalogue.remove(id);
         router.replace({ pathname: "/plu", params: { view: "catalogues" } });
         changed();
-      } catch (e: any) { setError(e?.message || "The catalogue couldn't be deleted."); }
+      } catch (e: any) { setError(errorMessage(e)); }
       finally { setBusyId(null); }
     });
   };

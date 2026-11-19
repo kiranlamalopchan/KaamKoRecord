@@ -48,6 +48,9 @@ urlpatterns = [
     path("people/<str:username>/block/", moderation.BlockPerson.as_view(), name="person_block"),
     path("me/blocked/", moderation.Blocked.as_view(), name="me_blocked"),
     path("report/", moderation.ReportThing.as_view(), name="report"),
+    path("people/<str:username>/moderator/", moderation.Moderator.as_view(), name="person_moderator"),
+    path("moderation/reports/", moderation.Reports.as_view(), name="moderation_reports"),
+    path("moderation/reports/<int:pk>/", moderation.ReportAction.as_view(), name="moderation_report"),
 
     path("friends/", friends.Friends.as_view(), name="friends"),
     path("friends/page/", friends.FriendsPage.as_view(), name="friends_page"),
@@ -105,8 +108,11 @@ urlpatterns = [
     path("items/search/", catalogue.Search.as_view(), name="item_search"),
     path("items/preview/", catalogue.Preview.as_view(), name="item_preview"),
     path("items/import/", catalogue.Import.as_view(), name="item_import"),
+    path("catalogues/", catalogue.Create.as_view(), name="catalogue_create"),
     path("catalogues/<int:pk>/", catalogue.Manage.as_view(), name="catalogue_detail"),
+    path("catalogues/<int:pk>/items/", catalogue.Items.as_view(), name="catalogue_items"),
     path("items/<int:pk>/", catalogue.Detail.as_view(), name="item_detail"),
+    path("items/<int:pk>/stock/", catalogue.Stock.as_view(), name="item_stock"),
 
     path("plu/search/", plu.Search.as_view(), name="plu_search"),
     path("plu/import/", plu.Import.as_view(), name="plu_import"),

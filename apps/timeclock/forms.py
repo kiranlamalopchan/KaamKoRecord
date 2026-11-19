@@ -87,13 +87,18 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
     per workplace, so this is the only screen that sets it.
     """
 
+    RATE_MULTIPLIERS = (
+        "saturday_multiplier", "sunday_multiplier", "public_holiday_multiplier",
+        "overtime_multiplier", "double_time_multiplier",
+    )
+
     class Meta:
         model = Workplace
         # The fortnight is asked for as a weekday and a this-week-or-last
         # (FortnightFields), not as the date the model keeps.
         fields = [
             "name", "address", "color", "pay_cycle", "paid_in", "hourly_rate",
-            "saturday_multiplier", "sunday_multiplier", "public_holiday_multiplier", "overtime_after_hours", "overtime_multiplier",
+            "saturday_multiplier", "sunday_multiplier", "public_holiday_multiplier", "overtime_after_hours", "overtime_multiplier", "double_time_after_hours", "double_time_multiplier",
             "tax_scale", "study_loan", "tax_rate",
             "hours_limit", "limit_period",
             "week_starts_on", "month_starts_on",
@@ -111,6 +116,8 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
             "public_holiday_multiplier": "Public holiday rate multiplier",
             "overtime_after_hours": "Overtime starts after hours",
             "overtime_multiplier": "Overtime rate multiplier",
+            "double_time_after_hours": "Double time starts after hours (optional)",
+            "double_time_multiplier": "Double time rate multiplier",
             "tax_scale": "Your tax situation here",
             "study_loan": "I have a HELP or other study loan",
             "tax_rate": "Tax withheld %",
@@ -133,6 +140,8 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
             "public_holiday_multiplier": forms.NumberInput(attrs={"step": "0.01", "min": "1", "max": "5", "inputmode": "decimal"}),
             "overtime_after_hours": forms.NumberInput(attrs={"step": "0.25", "min": "0.25", "max": "24", "inputmode": "decimal"}),
             "overtime_multiplier": forms.NumberInput(attrs={"step": "0.01", "min": "1", "max": "5", "inputmode": "decimal"}),
+            "double_time_after_hours": forms.NumberInput(attrs={"step": "0.25", "min": "0.25", "max": "24", "inputmode": "decimal", "placeholder": "e.g. 10"}),
+            "double_time_multiplier": forms.NumberInput(attrs={"step": "0.01", "min": "1", "max": "5", "inputmode": "decimal"}),
             "tax_rate": forms.NumberInput(
                 attrs={"step": "0.01", "min": "0", "max": "100",
                        "inputmode": "decimal", "placeholder": "e.g. 10.8"}
@@ -161,6 +170,11 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
             ),
             "tax_rate": "From a payslip: tax withheld ÷ gross × 100.",
             "hours_limit": "Counted against this workplace only. Leave blank for no limit.",
+            "double_time_after_hours": (
+                "Hours into a shift when double time starts, after overtime. "
+                "E.g. overtime after 8 and double time after 10: a 12-hour shift is "
+                "8 h normal, 2 h overtime, 2 h double time. Leave blank for one overtime rate."
+            ),
             "week_starts_on": "Used for a weekly limit, and for this job's week totals.",
             "month_starts_on": f"1–{MAX_MONTH_START_DAY}. Use the day your pay month opens.",
         }
@@ -180,20 +194,21 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
         # Nor is how you are handed it: an older client that never saw the
         # field leaves a workplace as it was rather than failing on it.
         self.fields["paid_in"].required = False
-        # Penalty rates were added after the first mobile clients shipped.
-        # Missing values from those clients keep the workplace defaults
-        # instead of turning a compatible request into a validation error.
-        for name in (
-            "saturday_multiplier", "sunday_multiplier",
-            "public_holiday_multiplier", "overtime_multiplier",
-        ):
+        # Older clients can omit penalty rates. Blank rates also use the
+        # existing rate or, for a new workplace, the model default.
+        for name in self.RATE_MULTIPLIERS:
             self.fields[name].required = False
+            rate = "Use a rate from 1× to 5× — 1 is the normal rate, 1.5 time and a half, 2 double."
+            self.fields[name].error_messages.update(max_value=rate, min_value=rate, invalid="Enter the rate as a number, like 1.5.")
+        for name in ("overtime_after_hours", "double_time_after_hours"):
+            hours = "Use a number of hours from 0.25 to 24, like 8."
+            self.fields[name].error_messages.update(max_value=hours, min_value=hours, invalid="Enter the hours as a number, like 8.")
         self._add_fortnight_fields()
         # Asked for in the order the cap is: which period, then where each
         # period starts — the fortnight's two answers beside the week's one.
         self.order_fields([
             "name", "address", "color", "pay_cycle", "paid_in", "hourly_rate",
-            "saturday_multiplier", "sunday_multiplier", "public_holiday_multiplier", "overtime_after_hours", "overtime_multiplier",
+            "saturday_multiplier", "sunday_multiplier", "public_holiday_multiplier", "overtime_after_hours", "overtime_multiplier", "double_time_after_hours", "double_time_multiplier",
             "tax_scale", "study_loan", "tax_rate",
             "hours_limit", "limit_period",
             "week_starts_on", "fortnight_starts_on", "fortnight_phase", "month_starts_on",
@@ -235,17 +250,28 @@ class WorkplaceForm(FortnightFields, forms.ModelForm):
         left on the row to reappear if the job is switched back.
         """
         cleaned = super().clean()
-        for name in (
-            "saturday_multiplier", "sunday_multiplier",
-            "public_holiday_multiplier", "overtime_multiplier",
-        ):
-            if self.is_bound and name not in self.data:
+        for name in self.RATE_MULTIPLIERS:
+            if name in cleaned and cleaned[name] is None:
                 cleaned[name] = getattr(self.instance, name)
+        if "double_time_after_hours" not in self.data:
+            cleaned["double_time_after_hours"] = self.instance.double_time_after_hours
+        self._clean_double_time(cleaned)
         self._clean_tax(cleaned)
         if cleaned.get("paid_in") == PaidIn.CASH:
             cleaned["tax_rate"] = None
         self._resolve_fortnight(cleaned)
         return cleaned
+
+    def _clean_double_time(self, cleaned):
+        """Double time is a second step of overtime, so it needs overtime first and must start after it."""
+        double = cleaned.get("double_time_after_hours")
+        if double is None:
+            return
+        overtime = cleaned.get("overtime_after_hours")
+        if overtime is None:
+            self.add_error("double_time_after_hours", "Set when overtime starts first — double time comes after it.")
+        elif double <= overtime:
+            self.add_error("double_time_after_hours", f"Double time has to start after overtime ({overtime:g} h). Try a larger number.")
 
     def _clean_tax(self, cleaned):
         """

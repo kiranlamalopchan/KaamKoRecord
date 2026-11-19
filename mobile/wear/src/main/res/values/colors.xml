@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- The phone app's adaptive icon background (app.json). -->
+  <color name="icon_background">#121c2d</color>
+</resources>

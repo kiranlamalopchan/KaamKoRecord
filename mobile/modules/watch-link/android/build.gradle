@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.kiranlama.mywork'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.watchlink"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // The Wearable Data Layer: how the phone reaches the Wear OS app.
+  implementation "com.google.android.gms:play-services-wearable:20.0.1"
+}

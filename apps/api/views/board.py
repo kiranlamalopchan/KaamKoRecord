@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.models import Friendship
+from apps.moderation import roles
 from apps.noticeboard import notify
 from apps.noticeboard.forms import CommentForm, NoticeForm
 from apps.noticeboard.models import Comment, CommentReaction, Notice, Reaction
@@ -194,6 +195,9 @@ class Person(APIView):
             # Friends, and no block either way: the Message button's condition.
             "can_message": _can_message(request.user, user),
             "since": user.date_joined.strftime("%-d %b %Y"),
+            "is_moderator": roles.is_moderator(user),
+            # An admin looking at somebody who isn't one: the Make moderator button.
+            "can_make_moderator": roles.is_admin(request.user) and not user.is_staff and user.is_active,
             "notice_count": user.notice_count,
             "comment_count": user.comment_count,
             "received": (
@@ -205,4 +209,45 @@ class Person(APIView):
                 + CommentReaction.objects.filter(user=user).count()
             ),
             "notices": [serialize.notice(request, n, request.user) for n in notices],
+            **_closeness(request, request.user, user, blocked),
         })
+
+
+def _closeness(request, me, them, blocked):
+    """
+    The head of somebody's page: where the two of you stand (the one button
+    that fits — Add friend, Accept, Requested or Friends), how many friends
+    they have and which of them you share, and the ring of a story you may watch.
+    """
+    from apps.accounts.models import FriendRequest
+    from .conversations import story_rings
+
+    request_id = None
+    if me.pk == them.pk:
+        state = "me"
+    elif Friendship.are_friends(me, them):
+        state = "friends"
+    elif (theirs := FriendRequest.objects.filter(from_user=them, to_user=me).first()) is not None:
+        state, request_id = "received", theirs.pk
+    elif (mine := FriendRequest.objects.filter(from_user=me, to_user=them).first()) is not None:
+        state, request_id = "sent", mine.pk
+    else:
+        state = "none"
+
+    theirs_ids = set(
+        Friendship.objects.filter(user=them, friend__is_active=True).values_list("friend_id", flat=True)
+    )
+    shared = []
+    if state != "me":
+        shared = list(
+            get_user_model().objects.filter(pk__in=theirs_ids & Friendship.ids_for(me), is_active=True)
+            .select_related("profile").order_by("username")
+        )
+    return {
+        "friendship": state,
+        "friend_request": request_id,
+        "friends_count": len(theirs_ids),
+        "mutual_count": len(shared),
+        "mutual": [serialize.person(request, p, me) for p in shared[:3]],
+        "story": None if blocked else story_rings(me, [them.pk]).get(them.pk),
+    }

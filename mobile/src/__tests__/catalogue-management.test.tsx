@@ -5,7 +5,7 @@ import ManageCatalogue from "../../app/items/catalogue/[id]";
 const mockPush = jest.fn(), mockReplace = jest.fn(), mockChanged = jest.fn();
 const mockUpdate = jest.fn(), mockDelete = jest.fn();
 const mockDetails = { id: 5, name: "Work kit", count: 2, headers: ["Code", "Name", "Notes"], search_columns: ["Code", "Name"], title_column: "Name", code_column: "Code", description_column: "Notes" };
-jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ id: "5" }), useRouter: () => ({ push: mockPush, replace: mockReplace }) }));
+jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ id: "5" }), useRouter: () => ({ push: mockPush, replace: mockReplace, canGoBack: () => false }) }));
 jest.mock("@/auth/session", () => ({ useSession: () => ({ me: { username: "owner" } }) }));
 jest.mock("@tanstack/react-query", () => ({ useQuery: () => ({ data: mockDetails }) }));
 jest.mock("@/api/catalogue", () => ({ catalogue: { update: (...args: unknown[]) => mockUpdate(...args) }, useCatalogueChanged: () => mockChanged }));
@@ -28,13 +28,13 @@ test("edits a catalogue's name and searchable columns, then returns to managemen
   await fireEvent.changeText(screen.getByLabelText("Catalogue name"), "New kit");
   await fireEvent.press(screen.getByRole("button", { name: "Notes" }));
   await fireEvent.press(screen.getByRole("button", { name: "Save changes" }));
-  await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(5, { name: "New kit", search_columns: ["Code", "Name", "Notes"] }));
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(5, { name: "New kit", search_columns: ["Code", "Name", "Notes"], headers: ["Code", "Name", "Notes"], code_column: "Code", track_stock: false }));
   expect(mockReplace).toHaveBeenCalledWith({ pathname: "/plu", params: { view: "catalogues" } });
   expect(mockChanged).toHaveBeenCalled();
 });
 
 test("save errors keep edits on screen and prevent navigating away", async () => {
-  mockUpdate.mockRejectedValueOnce(new Error("That name already exists."));
+  mockUpdate.mockRejectedValueOnce(Object.assign(new Error("That name already exists."), { status: 400 }));
   const screen = await render(<ManageCatalogue />);
   await fireEvent.changeText(screen.getByLabelText("Catalogue name"), "Taken");
   await fireEvent.press(screen.getByRole("button", { name: "Save changes" }));
@@ -60,4 +60,15 @@ test("cannot save an empty name or a catalogue without searchable columns", asyn
   await fireEvent.press(screen.getByRole("button", { name: "Name" }));
   expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   expect(mockUpdate).not.toHaveBeenCalled();
+});
+
+test("adds a column, which is searched, and chooses the barcode column", async () => {
+  const screen = await render(<ManageCatalogue />);
+  await fireEvent.changeText(screen.getByLabelText("New column name"), "Price");
+  await fireEvent.press(screen.getByRole("button", { name: "Add" }));
+  expect(screen.getByRole("button", { name: "Price" })).toBeTruthy();
+  await fireEvent.changeText(screen.getByLabelText("New column name"), "price");
+  expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+  await fireEvent.press(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(5, expect.objectContaining({ headers: ["Code", "Name", "Notes", "Price"], search_columns: ["Code", "Name", "Price"] })));
 });

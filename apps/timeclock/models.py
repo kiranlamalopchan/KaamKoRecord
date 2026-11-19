@@ -300,6 +300,11 @@ class Workplace(models.Model):
     public_holiday_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=1, validators=[MinValueValidator(1), MaxValueValidator(5)])
     overtime_after_hours = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0.25), MaxValueValidator(24)])
     overtime_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=1.5, validators=[MinValueValidator(1), MaxValueValidator(5)])
+    # A second step of overtime, as many awards have it: the first hours of
+    # overtime at time and a half, then double time from this many hours into
+    # the shift (e.g. overtime after 8, double time after 10). Blank: one step.
+    double_time_after_hours = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0.25), MaxValueValidator(24)])
+    double_time_multiplier = models.DecimalField(max_digits=4, decimal_places=2, default=2, validators=[MinValueValidator(1), MaxValueValidator(5)])
     # Cash in hand or into an account. Cash has no withholding to work out, so
     # everything about tax drops away for that job rather than sitting there
     # unanswered — see PaidIn.
@@ -578,14 +583,38 @@ class Workplace(models.Model):
             return float(self.sunday_multiplier)
         return 1.0
 
+    def shift_hours(self, hours):
+        """
+        A shift's hours split into (ordinary, overtime, double time).
+
+        Overtime starts `overtime_after_hours` into the shift; double time, if
+        set, starts `double_time_after_hours` in. A 12-hour shift with overtime
+        after 8 and double time after 10 is 8 + 2 + 2.
+        """
+        if self.overtime_after_hours is None:
+            return hours, 0.0, 0.0
+        overtime_from = float(self.overtime_after_hours)
+        double_from = float(self.double_time_after_hours) if self.double_time_after_hours is not None else None
+        if double_from is not None and double_from <= overtime_from:
+            double_from = None  # the form refuses this; an old row that has it keeps one step
+        ordinary = min(hours, overtime_from)
+        if double_from is None:
+            return ordinary, max(0.0, hours - overtime_from), 0.0
+        overtime = max(0.0, min(hours, double_from) - overtime_from)
+        return ordinary, overtime, max(0.0, hours - double_from)
+
     def gross_for_span(self, hours, day, user=None):
-        """Gross for one shift, applying its day rate and per-shift overtime."""
+        """Gross for one shift, applying its day rate and per-shift overtime (and double time)."""
         rate = float(self.hourly_rate)
         day_multiplier = self.penalty_multiplier(day, user)
-        threshold = float(self.overtime_after_hours) if self.overtime_after_hours is not None else hours
-        ordinary = min(hours, threshold)
-        overtime = max(0.0, hours - threshold)
-        return round(rate * ordinary * day_multiplier + rate * overtime * max(day_multiplier, float(self.overtime_multiplier)), 2)
+        ordinary, overtime, double = self.shift_hours(hours)
+        # A weekend or holiday shift's overtime is paid at whichever is higher.
+        return round(
+            rate * ordinary * day_multiplier
+            + rate * overtime * max(day_multiplier, float(self.overtime_multiplier))
+            + rate * double * max(day_multiplier, float(self.double_time_multiplier)),
+            2,
+        )
 
     def gross_for_shift(self, shift):
         return self.gross_for_span(shift.worked_duration.total_seconds() / 3600, timezone.localtime(shift.clock_in).date(), shift.user)

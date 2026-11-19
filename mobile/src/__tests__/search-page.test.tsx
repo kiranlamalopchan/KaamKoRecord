@@ -99,8 +99,10 @@ test("search keeps photo search without a duplicate upload action", async () => 
 test("catalogue uploads remain available from the Catalogues tab", async () => {
   mockParams.view = "catalogues";
   const screen = await render(<Search />);
-  await fireEvent.press(screen.getByText("Upload a new catalogue"));
+  await fireEvent.press(screen.getByText("Upload a CSV file"));
   expect(mockPush).toHaveBeenCalledWith("/items/import");
+  await fireEvent.press(screen.getByText("Create a catalogue"));
+  expect(mockPush).toHaveBeenCalledWith("/items/new");
   expect(screen.queryByRole("button", { name: /Search My private catalogue/ })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Edit My private catalogue" })).toBeNull();
   await fireEvent.press(screen.getByRole("button", { name: "Actions for My private catalogue" }));

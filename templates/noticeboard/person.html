@@ -17,7 +17,7 @@
 <div class="profile">
   {% avatar profile size="lg" %}
   <div class="profile__id">
-    <h1 class="profile__name">{{ profile.username }}{% if is_me %} <span class="profile__you">you</span>{% endif %}{% include "accounts/_admin_badge.html" with user=profile %}</h1>
+    <h1 class="profile__name">{{ profile.username }}{% if is_me %} <span class="profile__you">you</span>{% endif %}{% include "accounts/_admin_badge.html" with user=profile full=True %}</h1>
     <p class="profile__since">
       {% if profile.get_full_name %}{{ profile.get_full_name }} · {% endif %}
       On KaamKoRecord since {{ profile.date_joined|date:"j M Y" }}
@@ -25,6 +25,14 @@
   </div>
 </div>
 
+{% if can_make_moderator %}
+  <form class="person-moderator" method="post" action="{% url 'moderation:moderator' profile.username %}">
+    {% csrf_token %}
+    <input type="hidden" name="on" value="{% if is_moderator %}0{% else %}1{% endif %}">
+    <span class="muted text-sm">{% if is_moderator %}{{ profile.username }} is a moderator: they can review reports.{% else %}Moderators can review reports and take posts down.{% endif %}</span>
+    <button type="submit" class="btn btn--sm">{% if is_moderator %}Remove moderator{% else %}Make moderator{% endif %}</button>
+  </form>
+{% endif %}
 {% if not is_me %}
   <div class="person-safety">
     {% if blocked %}

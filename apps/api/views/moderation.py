@@ -1,13 +1,15 @@
 """Blocking a person and reporting a post — the app's side of apps.moderation."""
 
 from django.contrib.auth import get_user_model
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.moderation import roles
 from apps.moderation.models import Block, Kind, Reason, Report
-from apps.moderation.services import REPORT_RECEIVED, report_target as _target
+from apps.moderation.services import DISMISS, REPORT_RECEIVED, TAKE_DOWN, is_up, report_target as _target, reported_thing, resolve
 
 from .. import serialize
 
@@ -70,3 +72,94 @@ class ReportThing(APIView):
             {"detail": REPORT_RECEIVED},
             status=status.HTTP_201_CREATED,
         )
+
+
+# ---- running the board: admins choose moderators, moderators answer reports ----
+
+REPORTS_PAGE = 30
+
+
+class Moderator(APIView):
+    """POST makes `username` a moderator; DELETE stops it. Admins only."""
+
+    def _person(self, request, username):
+        if not roles.is_admin(request.user):
+            raise Http404  # a door only admins need to know is there
+        return get_object_or_404(User, username=username, is_active=True)
+
+    def post(self, request, username):
+        them = self._person(request, username)
+        if them.is_staff:
+            return Response({"detail": f"{them.get_username()} is an admin, and admins already moderate."}, status=status.HTTP_400_BAD_REQUEST)
+        roles.set_moderator(them, True)
+        return Response({"is_moderator": True, "detail": f"{them.get_username()} is now a moderator."})
+
+    def delete(self, request, username):
+        them = self._person(request, username)
+        if them.is_staff:
+            return Response({"detail": f"{them.get_username()} is an admin, and admins always moderate."}, status=status.HTTP_400_BAD_REQUEST)
+        roles.set_moderator(them, False)
+        return Response({"is_moderator": False, "detail": f"{them.get_username()} is no longer a moderator."})
+
+
+def report_row(request, report):
+    thing = reported_thing(report)
+    open_reports = Report.objects.filter(kind=report.kind, target_id=report.target_id, handled_at__isnull=True)
+    return {
+        "id": report.pk,
+        "kind": report.kind,
+        "kind_label": report.get_kind_display(),
+        "reason": report.reason,
+        "reason_label": report.get_reason_display(),
+        "note": report.note,
+        "excerpt": report.excerpt,
+        "reporter": serialize.person(request, report.reporter, request.user),
+        "accused": serialize.person(request, report.accused, request.user) if report.accused else None,
+        "reports": open_reports.count() if report.handled_at is None else 1,
+        "up": is_up(report, thing),
+        "can_take_down": report.kind != Kind.USER,
+        "created": report.created_at.isoformat(),
+        "handled": report.handled_at.isoformat() if report.handled_at else None,
+    }
+
+
+class Reports(APIView):
+    """GET ?status=open|handled: what people reported, newest first. Moderators only."""
+
+    def get(self, request):
+        if not roles.is_moderator(request.user):
+            raise Http404
+        handled = request.GET.get("status") == "handled"
+        rows = Report.objects.filter(handled_at__isnull=not handled).select_related(
+            "reporter", "reporter__profile", "accused", "accused__profile")
+        if not handled:
+            # One line per reported thing: the newest report of each stands for the rest.
+            seen, unique = set(), []
+            for report in rows:
+                if (report.kind, report.target_id) not in seen:
+                    seen.add((report.kind, report.target_id))
+                    unique.append(report)
+            rows = unique
+        page, meta = serialize.page_of(request, rows, REPORTS_PAGE)
+        meta.update(results=[report_row(request, r) for r in page],
+                    open=Report.objects.filter(handled_at__isnull=True).values("kind", "target_id").distinct().count())
+        return Response(meta)
+
+
+class ReportAction(APIView):
+    """POST {action: take_down|dismiss}: answer a report (and every other report of the same thing)."""
+
+    def post(self, request, pk):
+        if not roles.is_moderator(request.user):
+            raise Http404
+        report = get_object_or_404(Report, pk=pk)
+        action = request.data.get("action")
+        if action not in (TAKE_DOWN, DISMISS):
+            return Response({"detail": "Choose take down or dismiss."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            closed = resolve(report, action)
+        except ValueError as why:
+            return Response({"detail": str(why)}, status=status.HTTP_400_BAD_REQUEST)
+        report.refresh_from_db()
+        detail = "Taken down." if action == TAKE_DOWN else "Report dismissed."
+        return Response({"report": report_row(request, report), "closed": closed, "detail": detail})

@@ -11,6 +11,7 @@ import { SkeletonRemove } from "@/ui/Skeleton";
 import { notify } from "@/ui/confirm";
 import { sp, useTheme } from "@/ui/theme";
 import { cssColour, Ledger, LedgerRow, Swatch } from "@/ui/timesheet";
+import { errorMessage } from "@/api/errors";
 
 export default function RemoveWorkplace() {
   const t = useTheme();
@@ -28,7 +29,7 @@ export default function RemoveWorkplace() {
       changed();
       router.canGoBack() ? router.back() : router.replace("/workplaces");
     } catch (e: any) {
-      notify("Not removed", e?.message || "");
+      notify("Not removed", errorMessage(e));
     } finally {
       setBusy(false);
     }
