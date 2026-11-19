@@ -147,7 +147,8 @@
           "microphonePermission": "To record voice messages and sound with a story video.",
           "recordAudioAndroid": true
         }
-      ]
+      ],
+      "./plugins/with-optional-portrait"
     ],
     "experiments": {
       "typedRoutes": true
