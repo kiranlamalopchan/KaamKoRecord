@@ -22,9 +22,24 @@ final class Link: NSObject, WCSessionDelegate, ObservableObject {
   private var pendingWatch: NSKeyValueObservation?
 
   override init() {
+    #if DEBUG && targetEnvironment(simulator)
+    // Simulator only, for screenshots and UI checks without a paired iPhone:
+    // `SIMCTL_CHILD_KKR_TOKEN=… SIMCTL_CHILD_KKR_SERVER=… xcrun simctl launch …`
+    // signs the watch in as the phone would. Never compiled into a device build.
+    let env = ProcessInfo.processInfo.environment
+    if let seeded = env["KKR_TOKEN"], let seededServer = env["KKR_SERVER"] {
+      UserDefaults.standard.set(seededServer, forKey: "server")
+      Link.writeToken(seeded)
+    }
+    #endif
     server = defaults.string(forKey: "server") ?? ""
     lang = defaults.string(forKey: "lang") ?? "en"
-    token = Link.readToken()
+    var saved = Link.readToken()
+    #if DEBUG && targetEnvironment(simulator)
+    // An unsigned simulator build has no keychain: keep the seeded token in memory.
+    if saved == nil { saved = env["KKR_TOKEN"] }
+    #endif
+    token = saved
     super.init()
     if WCSession.isSupported() {
       WCSession.default.delegate = self
