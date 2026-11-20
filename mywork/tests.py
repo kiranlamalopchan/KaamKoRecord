@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django import forms
 from django.http import Http404
 from django.template.loader import render_to_string
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.utils import timezone
 
 from apps.accounts.avatars import display_name
@@ -84,3 +84,34 @@ class SharedFormFieldTests(SimpleTestCase):
         self.assertIn("field--invalid", html)
         self.assertIn("This field is required.", html)
         self.assertNotIn("data-error hidden", html)
+
+
+class GetAppTests(TestCase):
+    """/get/: the one link to hand out — a phone to its store, a computer to both."""
+
+    IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
+    ANDROID = "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36"
+    MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 Safari/605.1.15"
+
+    def test_an_iphone_goes_to_the_app_store(self):
+        resp = self.client.get("/get/", HTTP_USER_AGENT=self.IPHONE)
+        self.assertRedirects(resp, "https://apps.apple.com/au/app/kaamkorecord/id6813073450", fetch_redirect_response=False)
+
+    def test_an_android_phone_goes_to_google_play_with_the_source(self):
+        resp = self.client.get("/get/?src=Poster", HTTP_USER_AGENT=self.ANDROID)
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "https://play.google.com/store/apps/details?id=com.kiranlama.merokaam"
+                                           "&referrer=utm_source%3Dposter%26utm_medium%3Dlink")
+
+    def test_a_source_that_isnt_a_plain_word_is_dropped(self):
+        resp = self.client.get("/get/?src=a%26b%3Dc", HTTP_USER_AGENT=self.ANDROID)
+        self.assertEqual(resp["Location"], "https://play.google.com/store/apps/details?id=com.kiranlama.merokaam")
+
+    def test_a_computer_sees_both_stores_signed_out(self):
+        with self.assertLogs("mywork.get_app", "INFO") as logs:
+            resp = self.client.get("/get/?src=facebook", HTTP_USER_AGENT=self.MAC)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'href="https://apps.apple.com/au/app/kaamkorecord/id6813073450"', count=2)  # page + footer
+        self.assertContains(resp, "utm_source%3Dfacebook")
+        self.assertContains(resp, "img/qr-app-store.svg")
+        self.assertIn("src=facebook to=web", logs.output[0])

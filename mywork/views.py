@@ -6,6 +6,8 @@ KaamKoRecord hosts two independent apps — PLU Management and TimeSheet Managem
 Nothing here knows what either one does; it only points at their front doors.
 """
 
+import logging
+import re
 from datetime import date
 from django.contrib import messages
 from django.contrib.auth import login
@@ -13,6 +15,7 @@ from django.contrib.auth.decorators import login_required
 from apps.accounts.forms import RegistrationForm
 from django.conf import settings
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from apps.holidays.services import card_for_user
 from apps.noticeboard.views import board_context, recent_for_hub
@@ -101,3 +104,37 @@ def terms(request):
     Store link to it.
     """
     return render(request, "terms.html", {"contact_email": settings.CONTACT_EMAIL, "effective": TERMS_EFFECTIVE})
+
+
+APP_STORE = "https://apps.apple.com/au/app/kaamkorecord/id6813073450"
+GOOGLE_PLAY = "https://play.google.com/store/apps/details?id=com.kiranlama.merokaam"
+_SOURCE = re.compile(r"^[a-z0-9-]{1,30}$")
+_installs = logging.getLogger("mywork.get_app")
+
+
+def get_app(request):
+    """
+    The one link to hand out — invites from the app, posters, posts:
+    /get/. A phone goes straight to its own store; anything else sees both
+    stores with a QR code each. `?src=poster` (a short lowercase word) says
+    where the link was found: it rides along to Google Play as the install
+    referrer and goes in the log, so the channels can be compared. Nothing
+    about the visitor is kept.
+    """
+    src = request.GET.get("src", "").lower()
+    src = src if _SOURCE.match(src) else ""
+    agent = request.headers.get("User-Agent", "")
+    play = f"{GOOGLE_PLAY}&referrer=utm_source%3D{src}%26utm_medium%3Dlink" if src else GOOGLE_PLAY
+    if re.search(r"iPhone|iPad|iPod", agent):
+        to = "ios"
+    elif "Android" in agent:
+        to = "android"
+    else:
+        to = "web"
+    _installs.info("get-app src=%s to=%s", src or "direct", to)
+    if to == "ios":
+        return redirect(APP_STORE)
+    if to == "android":
+        return redirect(play)
+    return render(request, "get_app.html", {"app_store": APP_STORE, "google_play": play,
+                                            "here": request.build_absolute_uri(reverse("get_app"))})

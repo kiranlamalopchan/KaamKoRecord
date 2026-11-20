@@ -8291,3 +8291,8 @@ body::before {
 .pw__eye svg { width: 20px; height: 20px; }
 .pw__eye .pw__hide, .pw__eye[aria-pressed="true"] .pw__show { display: none; }
 .pw__eye[aria-pressed="true"] .pw__hide { display: block; }
+
+/* /get/ — both stores on one page (templates/get_app.html) */
+.get-app__stores { margin: var(--sp-4) 0; }
+.get-app__share { margin: 0; }
+.get-app__share strong { word-break: break-all; }

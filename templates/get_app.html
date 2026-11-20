@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% load static %}
+{% comment %}
+  /get/ on a computer: both stores, each with its QR code to scan with a
+  phone. Phones never see this page — mywork.views.get_app sends them
+  straight to their own store. The QR codes are the footer's (static/img),
+  and they show from 768px up, as there; a narrow window gets the buttons.
+{% endcomment %}
+{% block title %}Get the app · KaamKoRecord{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1 class="page-title">Get KaamKoRecord</h1>
+  <p class="page-sub">Clock in, keep your timesheets and check your pay — free for iPhone and Android, in English and Nepali.</p>
+</div>
+
+<section class="card card__pad get-app" aria-labelledby="get-app-stores">
+  <h2 id="get-app-stores" class="section-label">Scan with your phone's camera</h2>
+  <div class="site-footer__stores get-app__stores">
+    <a class="store" href="{{ app_store }}" rel="noopener" data-full-load>
+      <img class="store__qr" src="{% static 'img/qr-app-store.svg' %}" alt="QR code for KaamKoRecord on the App Store" width="104" height="104">
+      <span class="store__label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></svg>
+        <span><small>Download on the</small>App Store</span>
+      </span>
+    </a>
+    <a class="store" href="{{ google_play }}" rel="noopener" data-full-load>
+      <img class="store__qr" src="{% static 'img/qr-google-play.svg' %}" alt="QR code for KaamKoRecord on Google Play" width="104" height="104">
+      <span class="store__label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5v17a1 1 0 0 0 1.5.86l14-8.5a1 1 0 0 0 0-1.72l-14-8.5A1 1 0 0 0 6 3.5Z"/></svg>
+        <span><small>Get it on</small>Google Play</span>
+      </span>
+    </a>
+  </div>
+  <p class="page-sub get-app__share">Sharing it with a friend? Send them <strong>{{ here }}</strong> — it opens the right store on their phone.</p>
+</section>
+{% endblock %}

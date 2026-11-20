@@ -38,6 +38,8 @@ urlpatterns = [
         name="password_reset_complete",
     ),
     path("app-update/", TemplateView.as_view(template_name="app_update.html"), name="app_update"),
+    # The link to hand out: a phone goes to its own store (invites, posters, posts).
+    path("get/", views.get_app, name="get_app"),
     path("privacy/", views.privacy, name="privacy"),
     path("terms/", views.terms, name="terms"),
     # Blocking people and reporting posts, and the rules they enforce.
