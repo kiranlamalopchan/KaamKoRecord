@@ -18,6 +18,21 @@ from .models import MAX_ADDRESS, MAX_DISPLAY_NAME, MAX_PHONE, Profile
 
 class RegistrationForm(UserCreationForm):
     email = forms.EmailField(required=False, help_text='Add an email so you can reset a forgotten password.')
+    invited_by = forms.CharField(
+        required=False, max_length=150, label='Who invited you? (optional)',
+        help_text="The 6-character code in their invite — it counts towards their Champion badge.",
+    )
+
+    def clean_invited_by(self):
+        from apps.invites.services import InviteError, check
+        # Codes are capitals; however it was typed, it is kept and shown in capitals.
+        value = (self.cleaned_data.get('invited_by') or '').strip().upper()
+        if value:
+            try:
+                check(None, value)
+            except InviteError as why:
+                raise forms.ValidationError(str(why))
+        return value
 
     class Meta(UserCreationForm.Meta):
         fields = ('username', 'email')

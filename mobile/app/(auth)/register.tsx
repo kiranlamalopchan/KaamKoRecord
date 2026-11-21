@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import { fieldErrors } from "@/api/client";
 import { useSession } from "@/auth/session";
 import { welcome } from "@/auth/welcome";
+import { installInviteCode } from "@/nav/referrer";
 import { Button, Field, Input } from "@/ui";
 
 import { AuthFrame } from "@/ui/AuthFrame";
@@ -14,6 +15,9 @@ export default function Register() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
+  // Who invited them (optional): filled in on Android when Play passed on the code.
+  const [invitedBy, setInvitedBy] = useState("");
+  useEffect(() => { void installInviteCode().then((code) => { if (code) setInvitedBy((typed) => typed || code); }); }, []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [socialBusy, setSocialBusy] = useState(false);
@@ -25,7 +29,7 @@ export default function Register() {
     setBusy(true);
     try {
       const who = username.trim();
-      await register(who, password, email.trim());
+      await register(who, password, email.trim(), invitedBy.trim());
       // A new account on this phone: the lock for next time, then
       // notifications, in the phone's own dialogs (auth/welcome).
       welcome(who);
@@ -37,6 +41,7 @@ export default function Register() {
         email: "email",
         password1: "password",
         password2: "password",
+        invited_by: "invitedBy",
       }, "again"));
     } finally {
       setBusy(false);
@@ -56,6 +61,9 @@ export default function Register() {
       </Field>
       <Field label="Confirm password" error={errors.again}>
         <Input secureTextEntry value={again} onChangeText={setAgain} textContentType="newPassword" onSubmitEditing={go} testID="password2" />
+      </Field>
+      <Field label="Who invited you? (optional)" help="The 6-character code in their invite — it counts towards their Champion badge." error={errors.invitedBy}>
+        <Input value={invitedBy} onChangeText={(typed) => setInvitedBy(typed.toUpperCase())} autoCapitalize="characters" autoCorrect={false} maxLength={150} testID="invited-by" />
       </Field>
       <Button title="Create account" onPress={go} busy={busy} disabled={socialBusy || !username || !password || !again} />
       <SocialSignIn disabled={busy} onBusyChange={setSocialBusy} />

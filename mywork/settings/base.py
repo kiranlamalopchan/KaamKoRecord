@@ -46,6 +46,8 @@ LOCAL_APPS = [
     # Blocking people and reporting posts — what a shared wall owes the
     # people on it, and what the app stores require of one.
     'apps.moderation',
+    # Who invited whom, and the Champion badge.
+    'apps.invites',
     # The roster: shifts you are due to work, and handing one to a friend.
     'apps.roster',
     # Messages between friends, one to one.

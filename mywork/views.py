@@ -73,12 +73,22 @@ def register(request):
         form = RegistrationForm(request.POST)
         if form.is_valid():
             user = form.save()
+            if form.cleaned_data.get("invited_by"):
+                from apps.invites.services import InviteError, record
+                try:
+                    record(user, form.cleaned_data["invited_by"])
+                except InviteError:
+                    pass  # checked by the form; a race just leaves it unlinked
+            request.session.pop("invite_ref", None)
             login(request, user)
             messages.success(request, "Account created. You are now logged in.")
             return redirect("home")
         messages.error(request, "Please correct the errors below.")
     else:
-        form = RegistrationForm()
+        # Came from somebody's invite link (/get/?ref=…, or ?ref= here): filled in for them.
+        ref = request.GET.get("ref", "")
+        ref = ref if _REF.match(ref) else request.session.get("invite_ref", "")
+        form = RegistrationForm(initial={"invited_by": ref})
 
     return render(request, "registration/register.html", {"form": form})
 
@@ -109,6 +119,7 @@ def terms(request):
 APP_STORE = "https://apps.apple.com/au/app/kaamkorecord/id6813073450"
 GOOGLE_PLAY = "https://play.google.com/store/apps/details?id=com.kiranlama.merokaam"
 _SOURCE = re.compile(r"^[a-z0-9-]{1,30}$")
+_REF = re.compile(r"^[A-Za-z0-9]{4,12}$")
 _installs = logging.getLogger("mywork.get_app")
 
 
@@ -123,15 +134,24 @@ def get_app(request):
     """
     src = request.GET.get("src", "").lower()
     src = src if _SOURCE.match(src) else ""
+    # Somebody's invite code: kept for the website's sign-up, and handed to
+    # Google Play, which passes it to the app on its first start (Android).
+    ref = request.GET.get("ref", "")
+    ref = ref.upper() if _REF.match(ref) else ""
+    if ref:
+        request.session["invite_ref"] = ref
     agent = request.headers.get("User-Agent", "")
-    play = f"{GOOGLE_PLAY}&referrer=utm_source%3D{src}%26utm_medium%3Dlink" if src else GOOGLE_PLAY
+    referrer = "%26".join(part for part in (
+        f"utm_source%3D{src}" if src else "", "utm_medium%3Dlink" if src else "", f"utm_content%3D{ref}" if ref else "",
+    ) if part)
+    play = f"{GOOGLE_PLAY}&referrer={referrer}" if referrer else GOOGLE_PLAY
     if re.search(r"iPhone|iPad|iPod", agent):
         to = "ios"
     elif "Android" in agent:
         to = "android"
     else:
         to = "web"
-    _installs.info("get-app src=%s to=%s", src or "direct", to)
+    _installs.info("get-app src=%s to=%s ref=%s", src or "direct", to, "yes" if ref else "no")
     if to == "ios":
         return redirect(APP_STORE)
     if to == "android":

@@ -8,7 +8,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Appearance, AppState } from "react-native";
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationTheme, useRootNavigationState } from "expo-router";
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider as NavigationTheme, useRootNavigationState } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
 import { SessionProvider, useSession } from "@/auth/session";
@@ -18,6 +18,9 @@ import { OfflineSync } from "@/offline/shifts";
 import { Splash } from "@/ui/Splash";
 import { UpdateRequired } from "@/ui/UpdateRequired";
 import { useRequiredUpdate } from "@/update/required";
+import { useRatingPrompt } from "@/review/rating";
+import { useSiriVoiceSearch } from "@/ui/siri";
+import { useAskInvitedBy } from "@/nav/askInvitedBy";
 import { useNotificationNavigation } from "@/push/useNotificationNavigation";
 import { nativeOrNull } from "@/ui/native";
 import { notifications, whileOpen } from "@/push/register";
@@ -108,6 +111,8 @@ function Guard() {
         <Stack.Screen name="profile/privacy" />
         <Stack.Screen name="profile/help" />
         <Stack.Screen name="profile/friends" />
+        <Stack.Screen name="profile/invite" />
+        <Stack.Screen name="invited-by" options={riseOptions} />
         <Stack.Screen name="profile/statement" />
         <Stack.Screen name="profile/activity" />
         <Stack.Screen name="profile/festival" />
@@ -163,16 +168,30 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
 type SystemUI = typeof import("expo-system-ui");
 const systemUI = nativeOrNull<SystemUI>(() => require("expo-system-ui"));
 
+function openAskInvitedBy() {
+  router.push("/invited-by" as never);
+}
+
+function openVoiceSearch() {
+  router.navigate("/plu?listen=1");
+}
+
 function Shell() {
   const t = useTheme();
   // The window behind every screen wears the page colour. Left at the default white, it
   // showed as a thin white line at the edge while one page slid away and the next came in.
   useEffect(() => { void systemUI?.setBackgroundColorAsync(t.bg).catch(() => {}); }, [t.bg]);
-  const { ready } = useSession();
+  const { ready, me } = useSession();
   const { checked } = useOnboarding();
   const [wayIn, setWayIn] = useState(true);
   // A version the server has retired sees only the way to the store.
   const update = useRequiredUpdate();
+  // Now and then, the store's own "rate this app" popup (review/rating).
+  useRatingPrompt(!wayIn && !!me && !update.required);
+  // "Hey Siri, voice search in KaamKoRecord": Items, listening (ui/siri.ts).
+  useSiriVoiceSearch(!wayIn && !!me && !update.required, openVoiceSearch);
+  // A new Google/Apple account: "Did someone invite you?", once (nav/askInvitedBy).
+  useAskInvitedBy(!wayIn && !!me && !update.required, openAskInvitedBy);
   // Drawn again when the language changes, so every screen under here is too.
   useT();
   // The saved language, then the buttons a clock notification wears — in

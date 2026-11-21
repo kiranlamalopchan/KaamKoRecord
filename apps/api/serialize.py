@@ -13,6 +13,7 @@ from mywork.formatting import relative_time as ago
 
 from apps.accounts.models import Profile
 from apps.moderation.roles import badge, is_moderator
+from apps.invites.services import champion
 from apps.holidays.whereabouts import guess_state
 from apps.noticeboard.models import Emoji, Notice
 from apps.noticeboard.presentation import COMMENTS_SHOWN, REPLIES_SHOWN, fold_thread as _fold
@@ -62,6 +63,8 @@ def person(request, user, viewer=None):
         # The people who run the board wear a mark beside their name.
         "is_admin": bool(user.is_staff),
         "is_moderator": badge(user) == "moderator",
+        # Brought 10, 25 or 50 people into the app: "bronze", "silver", "gold" (apps/invites).
+        "champion": champion(user),
     }
 
 

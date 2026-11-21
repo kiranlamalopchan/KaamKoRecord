@@ -29,3 +29,6 @@ private_media/
 
 # Store binaries are delivered locally, with release metadata kept in git.
 /releases/*/artifacts/
+
+# Local-only test logins (never commit)
+sample_data/local-test-accounts.txt

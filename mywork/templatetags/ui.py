@@ -123,3 +123,10 @@ def name_badge(user):
     """"admin", "moderator" or "" — the mark templates/accounts/_admin_badge.html draws."""
     from apps.moderation.roles import badge
     return badge(user) or ""
+
+
+@register.filter
+def champion_badge(user):
+    """"bronze", "silver", "gold" or "" — the Champion medal beside a name (apps/invites)."""
+    from apps.invites.services import champion
+    return champion(user) or ""

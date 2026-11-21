@@ -3,6 +3,7 @@ import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import { openAuthSessionAsync } from "expo-web-browser";
 import { ApiError, auth } from "@/api";
+import { installInviteCode } from "@/nav/referrer";
 
 export type SocialProvider = "google" | "apple";
 export type SocialPurpose = "login" | "link" | "reauth";
@@ -29,5 +30,8 @@ export async function authenticateWithProvider(provider: SocialProvider, purpose
   }
   const code = callback.searchParams.get("code") || "";
   if (!/^[A-Za-z0-9_-]{43}$/.test(code)) throw new ApiError(400, "Please restart sign-in and try again.");
-  return auth.socialExchange(code, verifier);
+  // A new account made by this sign-in is linked to whoever's invite link the
+  // phone was installed from (Android hands the code over; nav/referrer).
+  const invitedBy = purpose === "login" ? await installInviteCode() : "";
+  return auth.socialExchange(code, verifier, invitedBy);
 }

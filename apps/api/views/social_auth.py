@@ -146,4 +146,30 @@ class SocialExchange(APIView):
             return Response({'detail': FAILURES['inactive']}, status=400)
         if attempt.purpose == 'reauth':
             return Response({'reauth_token': reauth_receipt(user)})
-        return Response(_signed_in(request, user))
+        # A brand-new account made by this sign-in: link the invite code the
+        # phone came with (Android hands it over from the invite link), and
+        # if there's none, the app asks once "Did someone invite you?".
+        signed_in = _signed_in(request, user)
+        signed_in['ask_invited_by'] = attempt.purpose == 'login' and _just_joined(user) and _invited_by(user, request.data.get('invited_by'))
+        return Response(signed_in)
+
+
+def _just_joined(user):
+    """Made by this very sign-in (a minute or two ago), not an account coming back."""
+    return user.date_joined >= timezone.now() - timedelta(minutes=10)
+
+
+def _invited_by(user, code):
+    """Link `code` if there is one; whether the person should still be asked."""
+    from apps.invites.models import Invitation
+    from apps.invites.services import InviteError, record
+
+    if Invitation.objects.filter(invited=user).exists():
+        return False
+    if isinstance(code, str) and code.strip():
+        try:
+            record(user, code)
+            return False
+        except InviteError:
+            pass  # a stale or wrong code from the install: ask instead
+    return True

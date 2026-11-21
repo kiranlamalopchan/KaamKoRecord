@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react-native";
 
-import { CHROME_TOP, followScroll, setChromeHidden, useChromeHidden } from "@/ui/chrome";
+import { CHROME_TOP, followScroll, setChromeHidden, setTabBarHidden, useChromeHidden, useTabBarHidden } from "@/ui/chrome";
 
 const at = (y: number, height = 3000, view = 800) => ({ contentOffset: { y }, contentSize: { height }, layoutMeasurement: { height: view } });
 
@@ -65,6 +65,34 @@ describe("the chrome steps aside on the way down a page and comes back at the to
     expect(result.current).toBe(true);
     // The page is 60 taller now; the offset is pulled back to the new end.
     await act(async () => { followScroll(state, at(2140, 3000, 860)); });
+    expect(result.current).toBe(true);
+  });
+});
+
+describe("the bottom navigation slides away on the way down and back on the way up", () => {
+  beforeEach(() => act(() => { setChromeHidden(false); setTabBarHidden(false); }));
+
+  it("hides scrolling down, returns on any real scroll up, and is always there at the top", async () => {
+    const { result } = await renderHook(() => useTabBarHidden());
+    const state = { y: 0, run: 0 };
+    await act(async () => scroll(state, CHROME_TOP - 10));
+    expect(result.current).toBe(false);
+    await act(async () => scroll(state, 600));
+    expect(result.current).toBe(true);
+    // Up a little: back at once, while the top bar waits for the top.
+    await act(async () => scroll(state, 560));
+    expect(result.current).toBe(false);
+    await act(async () => scroll(state, 900));
+    expect(result.current).toBe(true);
+    await act(async () => scroll(state, 0));
+    expect(result.current).toBe(false);
+  });
+
+  it("does not flicker on a tiny wobble of the finger", async () => {
+    const { result } = await renderHook(() => useTabBarHidden());
+    const state = { y: 0, run: 0 };
+    await act(async () => scroll(state, 600));
+    await act(async () => { followScroll(state, at(596)); followScroll(state, at(600)); });
     expect(result.current).toBe(true);
   });
 });

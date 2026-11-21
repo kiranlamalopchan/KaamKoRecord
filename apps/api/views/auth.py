@@ -2,6 +2,7 @@
 
 from django.contrib.auth import authenticate
 from apps.accounts.forms import RegistrationForm
+from apps.invites.services import InviteError, check, record
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
@@ -52,7 +53,20 @@ class Register(APIView):
         })
         if not form.is_valid():
             return Response(form_errors(form), status=status.HTTP_400_BAD_REQUEST)
+        # Who invited them (optional): checked before the account exists, so
+        # a wrong code is a field to fix, not an account made without it.
+        invited_by = (request.data.get("invited_by") or "").strip()
+        if invited_by:
+            try:
+                check(None, invited_by)
+            except InviteError as why:
+                return Response({"invited_by": [str(why)]}, status=status.HTTP_400_BAD_REQUEST)
         user = form.save()
+        if invited_by:
+            try:
+                record(user, invited_by)
+            except InviteError:
+                pass  # checked above; a race (the inviter left) just leaves it unlinked
         return Response(_signed_in(request, user), status=status.HTTP_201_CREATED)
 
 

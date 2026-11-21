@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import Network
 import WatchKit
 
 /// What the watch shows and does. A tap shows at once, is kept on the watch,
@@ -40,22 +39,31 @@ final class ClockModel: ObservableObject {
         }
       }
       .store(in: &watchers)
-    // The connection is back: send what was saved while it was gone.
-    network.pathUpdateHandler = { [weak self] path in
-      let up = path.status == .satisfied
-      Task { @MainActor in
-        guard let self else { return }
-        self.online = up
-        if up, !self.pending.isEmpty { await self.refresh() }
+    // No NWPathMonitor here: watchOS only lets audio-streaming apps use it, so
+    // for this app it says "offline" for good and saved taps never went out.
+    // Instead every refresh simply tries (WatchApp asks every 20 s while the
+    // app is on screen); with no connection URLSession fails at once.
+    Task { await refresh() }
+    #if DEBUG && targetEnvironment(simulator)
+    // Simulator only, for checking taps reach the server without a tap tool:
+    // `SIMCTL_CHILD_KKR_TAPS=clock_in,start_break,end_break,clock_out` presses
+    // them one by one, 5 s apart. Never compiled into a device build.
+    if let script = ProcessInfo.processInfo.environment["KKR_TAPS"] {
+      let taps = script.split(separator: ",").compactMap { ClockAction(rawValue: String($0)) }
+      Task {
+        for action in taps {
+          try? await Task.sleep(for: .seconds(5))
+          switch action {
+          case .clockIn: clockIn()
+          case .startBreak: startBreak()
+          case .endBreak: endBreak()
+          case .clockOut: clockOut()
+          }
+        }
       }
     }
-    network.start(queue: DispatchQueue(label: "kaamkorecord.network"))
-    Task { await refresh() }
+    #endif
   }
-
-  private let network = NWPathMonitor()
-  /// Known to be offline: taps stay saved rather than wait out a timeout.
-  private var online = true
 
   var signedIn: Bool { Link.shared.signedIn }
 
@@ -123,7 +131,7 @@ final class ClockModel: ObservableObject {
 
   /// Send what is waiting, oldest first. Stops at the first tap that can't get through.
   private func flush() async {
-    guard online, !flushing else { return }
+    guard !flushing else { return }
     flushing = true
     defer { flushing = false }
     while let tap = pending.first {

@@ -12,6 +12,28 @@ export type Person = {
   is_admin: boolean;
   /** A moderator an admin chose (admins are is_admin instead): the outlined badge. */
   is_moderator?: boolean;
+  /** Brought 10, 25 or 50 people into the app: the Champion medal beside the name. */
+  champion?: ChampionLevel | null;
+};
+
+export type ChampionLevel = "bronze" | "silver" | "gold";
+
+/** Profile → Invite friends (GET me/invites/). */
+export type Invites = {
+  code: string;
+  link: string;
+  /** People they invited who use the app — what counts. */
+  joined: number;
+  /** Signed up with their code, not using the app yet. */
+  waiting: number;
+  level: ChampionLevel | null;
+  next_level: ChampionLevel | null;
+  next_at: number | null;
+  levels: { level: ChampionLevel; at: number }[];
+  /** Who invited this person, once said. */
+  invited_by: string | null;
+  /** In their first fortnight and not said yet: the "Who invited you?" box. */
+  can_say_invited_by: boolean;
 };
 
 export type Me = Person & {

@@ -16,7 +16,7 @@ import type {
   Reactors, Story, StoryPerson, TrayRow, Visibility,
   BlockedPerson, ModerationReport, ReportKind, ReportReason,
   ChatMessage, ChatThread, ChatThreads, PayslipCheck, PlannedInput, RosterPage,
-  ChatMember, ConvoMessage, ConvoPage, ConvoSummary, GalleryItem, Inbox, LinkItem,
+  ChatMember, ConvoMessage, ConvoPage, ConvoSummary, GalleryItem, Inbox, Invites, LinkItem,
 } from "./types";
 
 export * from "./types";
@@ -27,12 +27,12 @@ export { ApiError } from "./client";
 export const auth = {
   socialStart: (provider: "google" | "apple", challenge: string, purpose: "login" | "link" | "reauth" = "login") =>
     api<{ url: string; return_url: string }>(`auth/social/${provider}/start/`, { method: "POST", body: { challenge, purpose }, anonymous: purpose === "login" }),
-  socialExchange: (code: string, verifier: string) =>
-    api<{ token: string; me: Me } | { reauth_token: string }>("auth/social/exchange/", { method: "POST", body: { code, verifier }, anonymous: true }),
+  socialExchange: (code: string, verifier: string, invitedBy = "") =>
+    api<{ token: string; me: Me; ask_invited_by?: boolean } | { reauth_token: string }>("auth/social/exchange/", { method: "POST", body: { code, verifier, ...(invitedBy ? { invited_by: invitedBy } : null) }, anonymous: true }),
   login: (username: string, password: string) =>
     api<{ token: string; me: Me }>("auth/login/", { method: "POST", body: { username, password }, anonymous: true }),
-  register: (username: string, password: string, email = "") =>
-    api<{ token: string; me: Me }>("auth/register/", { method: "POST", body: { username, password, email }, anonymous: true }),
+  register: (username: string, password: string, email = "", invitedBy = "") =>
+    api<{ token: string; me: Me }>("auth/register/", { method: "POST", body: { username, password, email, ...(invitedBy ? { invited_by: invitedBy } : null) }, anonymous: true }),
   requestPasswordReset: (email: string) =>
     api<{ detail: string }>("auth/password-reset/", { method: "POST", body: { email }, anonymous: true }),
   /** `keep` leaves the token alive on the server: it is behind the phone's lock for next time. */
@@ -48,6 +48,8 @@ export const me = {
   setPhoto: (photo: FilePart) => api<Me>("me/photo/", { method: "POST", form: formWith({ photo }) }),
   clearPhoto: () => api<Me>("me/photo/", { method: "DELETE" }),
   setHolidayState: (state: string) => api<Me>("me/holiday-state/", { method: "PUT", body: { state } }),
+  invites: () => api<Invites>("me/invites/"),
+  setInvitedBy: (code: string) => api<Invites>("me/invites/invited-by/", { method: "POST", body: { invited_by: code } }),
   registerDevice: (token: string, platform: string, name: string) =>
     api("devices/", { method: "POST", body: { token, platform, name } }),
   unregisterDevice: (token: string) => api("devices/", { method: "DELETE", body: { token } }),

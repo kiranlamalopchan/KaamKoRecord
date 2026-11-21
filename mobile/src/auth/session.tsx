@@ -9,6 +9,7 @@ import { ApiError, auth, me as meApi, type Me } from "@/api";
 import { loadServer } from "@/api/server";
 import { loadLastMe, saveLastMe } from "@/auth/lastMe";
 import { forgetPushToken, registerForPush } from "@/push/register";
+import { askInvitedByNext } from "@/nav/askInvitedBy";
 
 import { armBiometric, biometricUser, disarmBiometric } from "./biometric";
 import { getToken, onTokenChange, setToken } from "./token";
@@ -23,7 +24,7 @@ type Session = {
   signInWithSocial: (provider: SocialProvider, purpose?: "login" | "link") => Promise<Me | null>;
   /** With a token the phone's lock has just released (see auth/biometric). */
   signInWithToken: (token: string) => Promise<void>;
-  register: (username: string, password: string, email?: string) => Promise<void>;
+  register: (username: string, password: string, email?: string, invitedBy?: string) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
   setMe: (me: Me) => void;
@@ -119,6 +120,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         if (!result) return null;
         if (!("token" in result)) throw new ApiError(400, "Please restart sign-in and try again.");
         await signedIn(result);
+        // A brand-new Google/Apple account with no invite code: ask who invited them, once.
+        askInvitedByNext(!!result.ask_invited_by);
         return result.me;
       },
       signInWithToken: async (token) => {
@@ -140,7 +143,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           throw e;
         }
       },
-      register: async (username, password, email) => signedIn(await auth.register(username, password, email)),
+      register: async (username, password, email, invitedBy) => signedIn(await auth.register(username, password, email, invitedBy)),
       signOut: async () => {
         // Signed in by the phone's lock next time? Then the token stays
         // alive on the server; only this screen forgets it.

@@ -134,7 +134,8 @@ export function FriendsPage() {
               ))}
             </View>
           ) : (
-            <Empty icon="people-outline" title={q ? `No friends match "${q}"` : "No friends yet"} sub={q ? undefined : "Add people from Everyone else — once you're friends, Friends only posts reach them."} card={false} />
+            <Empty icon="people-outline" title={q ? `No friends match "${q}"` : "No friends yet"} sub={q ? undefined : "Add people from Everyone else — once you're friends, Friends only posts reach them."} card={false}
+              action={q ? undefined : <Button title="Invite friends" kind="plain" size="sm" icon="share-social-outline" onPress={() => router.push("/profile/invite")} testID="friends-invite" />} />
           )}
           <MoreFooter rows={friendRows} testID="friends-more" />
         </SubFold>

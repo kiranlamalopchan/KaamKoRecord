@@ -65,6 +65,7 @@ export default function Profile({ tabMode = false }: { tabMode?: boolean }) {
       {activity.error ? <ErrorBanner error={activity.error} onRetry={() => { void activity.refetch(); }} /> : null}
       <ProfileGroup title={tr("Your space")}>
         <ProfileRow icon="people-outline" title={tr("Friends")} description={tr("People, requests and connections")} onPress={() => router.push("/profile/friends")} testID="profile-friends" />
+        <ProfileRow icon="share-social-outline" title={tr("Invite friends")} description={tr("Share KaamKoRecord and earn the Champion badge")} onPress={() => router.push("/profile/invite")} testID="profile-invite" />
         <ProfileRow icon="document-text-outline" title={tr("Statement")} description={tr("Download your hours and pay")} onPress={() => router.push("/profile/statement")} testID="profile-statement" />
         <ProfileRow icon="pulse-outline" title={tr("Activity")} description={tr("Your work and community activity")} onPress={() => router.push("/profile/activity")} testID="profile-activity" />
       </ProfileGroup>

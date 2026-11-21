@@ -10,6 +10,7 @@ import { Platform, useWindowDimensions, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { APPBAR_H } from "./theme";
+import { TAB_BAR_H, tabBarFoot } from "./TabBar";
 
 /** The widest a column of cards should ever get. */
 export const MAX_COLUMN = 720;
@@ -50,10 +51,10 @@ export function useLayout(): Layout {
   const gutter = wide ? 24 : Math.max(8, Math.min(12, width * 0.026));
   const side = wide ? Math.max(gutter, (width - MAX_COLUMN) / 2) : gutter;
   const hubSide = desk ? Math.max(gutter, (width - MAX_HUB) / 2) : side;
-  // iOS: pages run the full height of the screen, under the system's
-  // translucent tab bar, so the room to scroll the last thing clear of it is
-  // made here. Android's tab bar sits below the page instead.
-  const bottom = Platform.OS === "ios" ? insets.bottom + 64 + 16 : 40 + insets.bottom;
+  // Pages run the full height of the screen under the tab bar — Apple's
+  // translucent one on iOS, the app's floating one on Android (ui/TabBar) —
+  // so the room to scroll the last thing clear of it is made here.
+  const bottom = Platform.OS === "ios" ? insets.bottom + 64 + 16 : tabBarFoot(insets.bottom) + TAB_BAR_H + 16;
   return {
     width, height, compact, wide, desk, landscape: width > height, bar: APPBAR_H, gutter,
     column: { paddingLeft: side + insets.left, paddingRight: side + insets.right },

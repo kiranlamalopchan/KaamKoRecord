@@ -6,7 +6,7 @@
       "ios",
       "android"
     ],
-    "version": "1.4.4",
+    "version": "1.4.5",
     "scheme": "mywork",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -24,7 +24,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "To photograph picking slips or record a story.",
         "NSPhotoLibraryUsageDescription": "To select picking slips, story media, a profile photo or an optional problem screenshot.",
-        "NSMicrophoneUsageDescription": "To record voice messages and sound with a story video.",
+        "NSMicrophoneUsageDescription": "To record voice messages, sound with a story video, and to search your items by voice.",
+        "NSSpeechRecognitionUsageDescription": "To turn what you say into a search of your items.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -140,12 +141,21 @@
       "./plugins/with-compact-android-tabs",
       "@bacons/apple-targets",
       "./plugins/with-watch-version",
+      "./plugins/with-siri-voice-search",
       "./plugins/with-wear-app",
       [
         "expo-audio",
         {
-          "microphonePermission": "To record voice messages and sound with a story video.",
+          "microphonePermission": "To record voice messages, sound with a story video, and to search your items by voice.",
           "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "To record voice messages, sound with a story video, and to search your items by voice.",
+          "speechRecognitionPermission": "To turn what you say into a search of your items.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.as"]
         }
       ],
       "./plugins/with-optional-portrait"

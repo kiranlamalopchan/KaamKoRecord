@@ -10,7 +10,7 @@ const forStore = profile.startsWith("production");
 // build (both stores refuse a number they have already seen). The version
 // name is shared too: it is app.json's "version", and after a release it
 // must go up as well (App Store Connect closes a version once it is live).
-const BUILD_NUMBER = 26;
+const BUILD_NUMBER = 27;
 
 module.exports = ({ config }) => ({
   ...config,

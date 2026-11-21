@@ -26,3 +26,14 @@ export function nativeOrNull<T>(load: () => T): T | null {
     return null;
   }
 }
+
+/**
+ * Running inside Expo Go rather than the app's own build: the app's native
+ * changes (patches/, its own modules) are not there, and store popups would be
+ * about Expo Go itself.
+ */
+export function inExpoGo(): boolean {
+  // Read lazily: expo-constants is in every build, but not every test sets it up.
+  const Constants = nativeOrNull(() => require("expo-constants").default as typeof import("expo-constants").default);
+  return Constants?.appOwnership === "expo" || Constants?.executionEnvironment === "storeClient";
+}

@@ -4,17 +4,57 @@
  * a story, a friend row) it is just the badge, the word read out by a screen
  * reader; on their profile (`full`) the word "Admin" or "Moderator" is shown.
  * Nothing for everybody else. Matches templates/accounts/_admin_badge.html.
+ *
+ * After it, the Champion medal of somebody who brought 10, 25 or 50 people
+ * into the app — bronze, silver, gold (apps/invites) — drawn the same way:
+ * just the medal beside a name, "Gold Champion" written out on a profile.
  * `light` is for the story viewer, where the name sits in white on the picture.
  */
 import React from "react";
 import { Text, View } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 
-import type { Person } from "@/api/types";
+import type { ChampionLevel, Person } from "@/api/types";
 
 import { useT } from "@/i18n";
 
-export function AdminBadge({ person, size = 11, light = false, full = false }: { person: Pick<Person, "is_admin" | "is_moderator">; size?: number; light?: boolean; full?: boolean }) {
+export function AdminBadge({ person, size = 11, light = false, full = false }: { person: Pick<Person, "is_admin" | "is_moderator" | "champion">; size?: number; light?: boolean; full?: boolean }) {
+  const role = <RoleBadge person={person} size={size} light={light} full={full} />;
+  if (!person.champion) return role;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+      {role}
+      <ChampionBadge level={person.champion} size={size} light={light} full={full} />
+    </View>
+  );
+}
+
+/** The Champion medal: bronze at 10 people brought in, silver at 25, gold at 50. */
+export function ChampionBadge({ level, size = 11, light = false, full = false }: { level: ChampionLevel; size?: number; light?: boolean; full?: boolean }) {
+  const tr = useT();
+  const word = tr(CHAMPION_WORDS[level]);
+  const ink = light ? "#fff" : CHAMPION_INK[level];
+  return (
+    <View
+      accessibilityLabel={word}
+      testID={`champion-badge-${level}`}
+      accessibilityRole={full ? undefined : "image"}
+      style={{
+        flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999,
+        ...(full ? { paddingLeft: 4, paddingRight: 8, paddingVertical: 1.5, backgroundColor: light ? "rgba(255,255,255,0.22)" : CHAMPION_WASH[level] } : {}),
+      }}
+    >
+      <MaterialIcons name="military-tech" size={full ? size + 3 : size + 4} color={ink} />
+      {full ? <Text style={{ color: ink, fontSize: size, fontWeight: "700", letterSpacing: 0.2 }}>{word}</Text> : null}
+    </View>
+  );
+}
+
+const CHAMPION_WORDS: Record<ChampionLevel, string> = { bronze: "Bronze Champion", silver: "Silver Champion", gold: "Gold Champion" };
+const CHAMPION_INK: Record<ChampionLevel, string> = { bronze: "#b86b2e", silver: "#8a94a3", gold: "#e0a800" };
+const CHAMPION_WASH: Record<ChampionLevel, string> = { bronze: "rgba(184,107,46,0.14)", silver: "rgba(138,148,163,0.16)", gold: "rgba(234,179,8,0.16)" };
+
+function RoleBadge({ person, size, light, full }: { person: Pick<Person, "is_admin" | "is_moderator">; size: number; light: boolean; full: boolean }) {
   const tr = useT();
   const admin = person.is_admin;
   if (!admin && !person.is_moderator) return null;

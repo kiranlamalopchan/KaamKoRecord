@@ -26,7 +26,8 @@ test("the app exchanges a one-use callback with its locally held proof", async (
   const challenge = require("crypto").createHash("sha256").update(verifier).digest("base64url");
   expect(auth.socialStart).toHaveBeenCalledWith("google", challenge, "login");
   expect(openAuthSessionAsync).toHaveBeenCalledWith(expect.stringContaining("https://accounts.google.com"), SOCIAL_RETURN_URL);
-  expect(auth.socialExchange).toHaveBeenCalledWith(code, verifier);
+  // No invite code on this phone (not an Android install from an invite link): none is sent.
+  expect(auth.socialExchange).toHaveBeenCalledWith(code, verifier, "");
 });
 test("Apple reauthentication uses the same proof and the Apple browser", async () => {
   jest.mocked(auth.socialStart).mockResolvedValue({ url: "https://appleid.apple.com/auth/authorize", return_url: SOCIAL_RETURN_URL });

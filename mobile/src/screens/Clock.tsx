@@ -1,3 +1,4 @@
+import { askAtGoodMoment } from "@/review/rating";
 import { WorkPage } from "@/ui/WorkPage";
 /**
  * The Work clock: current time on an analog face, shift duration below it,
@@ -70,7 +71,11 @@ export default function Clock() {
       setSaved(next);
       success();
       changed();
-      if (next.finished) router.push(`/shifts/${next.finished}`);
+      if (next.finished) {
+        router.push(`/shifts/${next.finished}`);
+        // A shift done and added up: a good moment to ask for a rating, if it is due.
+        askAtGoodMoment();
+      }
     } catch (e: any) {
       if (unreachable(e) && scope && shown) {
         await queueClockAction(scope, request);

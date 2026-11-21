@@ -8296,3 +8296,19 @@ body::before {
 .get-app__stores { margin: var(--sp-4) 0; }
 .get-app__share { margin: 0; }
 .get-app__share strong { word-break: break-all; }
+
+/* The Champion medal (templates/accounts/_admin_badge.html): brought 10, 25 or 50 people into the app. */
+.champion-badge {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 8px 1px 5px;
+  border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.2px; line-height: 16px;
+  vertical-align: 2px; white-space: nowrap;
+}
+.champion-badge .medal { width: 1.35em; height: 1.35em; flex: none; }
+.champion-badge--bronze { color: #b86b2e; background: rgba(184, 107, 46, 0.14); }
+.champion-badge--silver { color: #8a94a3; background: rgba(138, 148, 163, 0.16); }
+.champion-badge--gold { color: #e0a800; background: rgba(234, 179, 8, 0.16); }
+.champion-badge--icon { gap: 0; padding: 0; margin-left: 4px; background: transparent; vertical-align: -3px; font-size: 13px; }
+
+/* An invite code (Who invited you?): shown in capitals as it is typed; the server keeps it in capitals too. */
+.input--code { text-transform: uppercase; letter-spacing: 0.08em; }
+.input--code::placeholder { text-transform: none; letter-spacing: normal; }

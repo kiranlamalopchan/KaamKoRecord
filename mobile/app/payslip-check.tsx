@@ -8,6 +8,7 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
+import { askAtGoodMoment } from "@/review/rating";
 import { ApiError, timesheet, useWorkplaces, type PayslipCheck } from "@/api";
 import { unreachable, type FilePart } from "@/api/client";
 import { useT } from "@/i18n";
@@ -48,6 +49,8 @@ export default function PayslipCheckScreen() {
       history.save(checked);
       setKept(null);
       if (checked.verdict === "short") warn(); else success();
+      // The pay matched the hours: a good moment to ask for a rating, if it is due.
+      if (checked.verdict === "match") askAtGoodMoment();
     } catch (e) {
       fail();
       setResult(null);

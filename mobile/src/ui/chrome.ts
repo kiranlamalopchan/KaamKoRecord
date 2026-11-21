@@ -24,6 +24,30 @@ export function useChromeHidden() {
   );
 }
 
+// ---- the bottom navigation --------------------------------------------------
+//
+// The tab bar is quicker to come back than the top bar: scroll down and it
+// slides away, scroll up even a little and it is back — the way to another
+// tab is never more than a flick away. It also comes back at the top of a
+// page and whenever the tab changes (app/(tabs)/_layout.tsx).
+
+let tabsHidden = false;
+const tabListeners = new Set<() => void>();
+
+export function setTabBarHidden(next: boolean) {
+  if (next === tabsHidden) return;
+  tabsHidden = next;
+  tabListeners.forEach((listener) => listener());
+}
+
+export function useTabBarHidden() {
+  return useSyncExternalStore(
+    (listener) => { tabListeners.add(listener); return () => { tabListeners.delete(listener); }; },
+    () => tabsHidden,
+    () => false,
+  );
+}
+
 /** How far a scroll must keep going one way before the chrome follows it. */
 export const CHROME_SLACK = 12;
 /** Near the top of a page the chrome always shows. */
@@ -46,9 +70,11 @@ export function followScroll(state: { y: number; run: number; view?: number }, e
   state.view = e.layoutMeasurement.height;
   if (delta === 0 || resized) return;
 
-  if (y <= CHROME_TOP) { state.run = 0; setChromeHidden(false); return; }
-  // Out of the way for the rest of the page: scrolling back up keeps it
-  // hidden until the top, where the line above brings it home.
+  if (y <= CHROME_TOP) { state.run = 0; setChromeHidden(false); setTabBarHidden(false); return; }
+  // Out of the way for the rest of the page: scrolling back up keeps the top
+  // bar hidden until the top, where the line above brings it home. The tab
+  // bar follows the finger both ways.
   state.run = Math.sign(delta) === Math.sign(state.run) ? state.run + delta : delta;
-  if (state.run > CHROME_SLACK) setChromeHidden(true);
+  if (state.run > CHROME_SLACK) { setChromeHidden(true); setTabBarHidden(true); }
+  else if (state.run < -CHROME_SLACK) setTabBarHidden(false);
 }

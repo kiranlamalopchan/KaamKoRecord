@@ -11,7 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useCatalogueIdle, useCatalogueSearch, type CatalogueItem } from "@/api/catalogue";
 import { Button, Card, Empty, ErrorBanner, Screen, Segments } from "@/ui";
-import { tick } from "@/ui/haptics";
+import { success, tick } from "@/ui/haptics";
 import { RevealProvider, useKeyboardScroll } from "@/ui/keyboard";
 import { useLayout } from "@/ui/layout";
 import { WithDepth } from "@/ui/depth";
@@ -23,18 +23,24 @@ import { SkeletonRows } from "@/ui/Skeleton";
 import { useDeleteCatalogue } from "@/ui/useDeleteCatalogue";
 import { ActionMenu } from "@/ui/ActionMenu";
 import { radius, sp, useTheme } from "@/ui/theme";
+import { spokenMatch, useVoiceSearch } from "@/ui/voice";
+import { askAtGoodMoment } from "@/review/rating";
+import { useT } from "@/i18n";
 
 export default function Plu() {
-  const t = useTheme();
+  const t = useTheme(), tr = useT();
   const layout = useLayout();
   const router = useRouter();
   const deletion = useDeleteCatalogue();
-  const params = useLocalSearchParams<{ catalogue?: string; view?: string; scan?: string }>();
+  const params = useLocalSearchParams<{ catalogue?: string; view?: string; scan?: string; listen?: string }>();
   const catalogueId = params.catalogue ? Number(params.catalogue) : undefined;
   const [mode, setMode] = usePrivateState<"search" | "photo">("items-mode", "search");
   const [typed, setTyped] = usePrivateState(`items-query:${catalogueId || "default"}`, "");
   const [pagination, setPagination] = useState<{ q: string; catalogueId?: number; page: number }>({ q: "", page: 1 });
   const [q, setQ] = useState("");
+  // A spoken search still to be answered: when its results arrive and one item
+  // is clearly what was said, its page opens by itself (ui/voice spokenMatch).
+  const [spoken, setSpoken] = useState<string | null>(null);
   const box = useRef<React.ComponentRef<typeof TextInput>>(null);
   const [focused, setFocused] = useState(false);
   const list = useRef<FlatList<CatalogueItem>>(null);
@@ -66,6 +72,16 @@ export default function Plu() {
   const waiting = !idle && (typed.trim() !== q || search.isLoading);
   const rows = search.data?.results ?? [];
   const count = search.data?.count ?? 0;
+  useEffect(() => {
+    if (spoken === null || q !== spoken || !search.data || search.isFetching) return;
+    setSpoken(null);
+    const item = spokenMatch(spoken, search.data.results, search.data.count);
+    if (!item) return;
+    success();
+    router.push(`/plu/${item.id}` as never);
+    // Found by voice, straight to it: a good moment to ask for a rating, if it is due.
+    askAtGoodMoment();
+  }, [spoken, q, search.data, search.isFetching, router]);
   const total = idleData?.total ?? 0;
   const phrases = useMemo(() => examples(idleData?.samples ?? []), [idleData?.samples]);
 
@@ -74,7 +90,25 @@ export default function Plu() {
     setPagination({ q, catalogueId, page: next });
     list.current?.scrollToOffset({ offset: 0, animated: true });
   };
-  const changeSearch = (value: string) => { setTyped(value); setPagination({ q: "", page: 1 }); };
+  const changeSearch = (value: string) => { setSpoken(null); setTyped(value); setPagination({ q: "", page: 1 }); };
+  // Search by voice: what is said fills the box as it is heard; the final words search at once.
+  const hints = useMemo(() => (idleData?.samples ?? []).map((item) => (item.title || item.description || "").trim()).filter(Boolean), [idleData?.samples]);
+  const voice = useVoiceSearch(useCallback((query: string, final: boolean) => {
+    setTyped(query);
+    setPagination({ q: "", page: 1 });
+    if (final) { setQ(query); setSpoken(query); } else setSpoken(null);
+  }, [setTyped]), hints);
+  const listen = () => { tick(); Keyboard.dismiss(); if (voice.listening) voice.stop(); else void voice.start(); };
+  // Opened to listen ("Hey Siri, voice search in KaamKoRecord"): start at once.
+  useEffect(() => {
+    if (params.listen !== "1") return;
+    router.setParams({ listen: undefined });
+    if (!voice.available) return;
+    setMode("search");
+    changeSearch("");
+    void voice.start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per request, not per render
+  }, [params.listen]);
   const upload = () => router.push("/items/import");
   const photo = () => { tick(); setMode("photo"); };
   const chooseCatalogue = (value: string) => { changeSearch(""); setQ(""); router.setParams({ catalogue: value }); };
@@ -130,22 +164,28 @@ export default function Plu() {
   </View>;
 
   const single = idleData && idleData.catalogues.length <= 1 ? idleData.catalogue?.name : undefined;
-  const status = idle ? `${total.toLocaleString()} item${total === 1 ? "" : "s"}${single ? ` in ${single}` : ""}` : waiting ? "Searching…" : `${count} result${count === 1 ? "" : "s"} for “${q}”`;
+  const plainStatus = idle ? `${total.toLocaleString()} item${total === 1 ? "" : "s"}${single ? ` in ${single}` : ""}` : waiting ? "Searching…" : `${count} result${count === 1 ? "" : "s"} for “${q}”`;
+  const status = voice.listening ? tr("Listening… say a name or a code") : voice.problem ?? plainStatus;
   const header = <View style={styles.header} testID="search-controls">
     <View style={[styles.field, { backgroundColor: t.surface, borderColor: focused ? t.brand : t.line }]} testID="search-field">
       <Ionicons name="search" size={20} color={focused ? t.brand : t.muted} />
       <View style={styles.inputWrap}>
         <TextInput ref={box} value={typed} onChangeText={changeSearch}
           onFocus={() => { setFocused(true); keyboard.reveal(box.current); }} onBlur={() => setFocused(false)}
-          placeholder={focused ? "Name or code" : ""} placeholderTextColor={t.muted}
+          placeholder={voice.listening ? tr("Listening…") : focused ? "Name or code" : ""} placeholderTextColor={t.muted}
           accessibilityLabel="Search your private catalogue" autoCapitalize="none" autoCorrect={false}
           returnKeyType="search" onSubmitEditing={() => { setQ(typed.trim()); box.current?.blur(); }} testID="plu-q" style={[styles.input, { color: t.text }]} />
-        <TypedPlaceholder phrases={phrases} prefix="Try " show={!focused && !typed} style={{ color: t.muted, fontSize: 17 }} />
+        <TypedPlaceholder phrases={phrases} prefix="Try " show={!focused && !typed && !voice.listening} style={{ color: t.muted, fontSize: 17 }} />
       </View>
-      {typed ? <Pressable onPress={() => { tick(); changeSearch(""); box.current?.focus(); }} accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={4}
+      {voice.available && (!typed || voice.listening) ? <Pressable onPress={listen} accessibilityRole="button"
+        accessibilityLabel={voice.listening ? tr("Stop listening") : tr("Search by voice")} accessibilityState={{ selected: voice.listening }} testID="voice-search" hitSlop={4}
+        style={({ pressed }) => [styles.icon, { backgroundColor: voice.listening ? t.brand : pressed ? t.surface2 : "transparent" }]}>
+        <Ionicons name={voice.listening ? "mic" : "mic-outline"} size={22} color={voice.listening ? t.bg : t.text2} />
+      </Pressable> : null}
+      {typed && !voice.listening ? <Pressable onPress={() => { tick(); changeSearch(""); box.current?.focus(); }} accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={4}
         style={({ pressed }) => [styles.icon, { backgroundColor: pressed ? t.surface2 : "transparent" }]}>
         <Ionicons name="close-circle" size={20} color={t.muted} />
-      </Pressable> : hasCode ? <Pressable onPress={() => router.push((catalogueId ? `/items/scanner?catalogue=${catalogueId}` : "/items/scanner") as never)} accessibilityRole="button" accessibilityLabel="Scan barcode" testID="barcode-scan" hitSlop={4}
+      </Pressable> : hasCode && !voice.listening ? <Pressable onPress={() => router.push((catalogueId ? `/items/scanner?catalogue=${catalogueId}` : "/items/scanner") as never)} accessibilityRole="button" accessibilityLabel="Scan barcode" testID="barcode-scan" hitSlop={4}
         style={({ pressed }) => [styles.icon, { backgroundColor: pressed ? t.surface2 : "transparent" }]}>
         <Ionicons name="barcode-outline" size={22} color={t.text2} />
       </Pressable> : null}

@@ -1,0 +1,101 @@
+diff --git a/node_modules/react-native-screens/ios/tabs/host/RNSTabsHostComponentView.mm b/node_modules/react-native-screens/ios/tabs/host/RNSTabsHostComponentView.mm
+index 84181aa..6921acb 100644
+--- a/node_modules/react-native-screens/ios/tabs/host/RNSTabsHostComponentView.mm
++++ b/node_modules/react-native-screens/ios/tabs/host/RNSTabsHostComponentView.mm
+@@ -38,6 +38,8 @@ @interface RNSTabsHostComponentView () <RCTMountingTransactionObserving>
+ 
+ @implementation RNSTabsHostComponentView {
+   RNSTabBarController *_Nonnull _controller;
++  // KaamKoRecord: the tab bar's own slide, so a new hide/show can take over mid-way.
++  UIViewPropertyAnimator *_tabBarSlide;
+ 
+   RNSTabsHostEventEmitter *_Nonnull _reactEventEmitter;
+ 
+@@ -255,15 +257,13 @@ - (void)updateProps:(const facebook::react::Props::Shared &)props
+ 
+   if (newComponentProps.tabBarHidden != oldComponentProps.tabBarHidden) {
+     _tabBarHidden = newComponentProps.tabBarHidden;
+-#if RNS_IPHONE_OS_VERSION_AVAILABLE(18_0)
+-    if (@available(iOS 18.0, *)) {
+-      // Do not animate during the first render / when it's detached from the UI.
+-      const BOOL shouldAnimate = [[_controller tabBar] window] != nil && _tabBarHiddenAnimationEnabled;
+-      [_controller setTabBarHidden:_tabBarHidden animated:shouldAnimate];
+-    } else
+-#endif // RNS_IPHONE_OS_VERSION_AVAILABLE(18_0)
+-    {
+-      _controller.tabBar.hidden = _tabBarHidden;
++    // KaamKoRecord: the bar slides itself out of the way (see slideTabBarHidden:),
++    // on every iOS version. Not animated during the first render / when detached.
++    const BOOL shouldAnimate = [[_controller tabBar] window] != nil && _tabBarHiddenAnimationEnabled;
++    if (shouldAnimate) {
++      [self slideTabBarHidden:_tabBarHidden];
++    } else {
++      [self placeTabBarHidden:_tabBarHidden];
+     }
+   }
+ 
+@@ -563,6 +563,56 @@ + (void)load
+ }
+ #endif // RCT_DYNAMIC_FRAMEWORKS
+ 
++
++#pragma mark - KaamKoRecord: tab bar slide
++
++// The tab bar slides down and fades out — and back — with the same spring as
++// the app's own top bar (stiffness 320, damping 34, mass 1, no overshoot),
++// instead of UIKit's stock hide.
++//
++// Only the bar itself moves: the controller never marks it hidden. Marking it
++// hidden (UIKit's own way) resizes the page underneath, frame by frame while
++// it animates, and the page shook as the bar came back. The pages already run
++// the full height of the screen under the bar, so there is nothing to resize.
++- (CGFloat)tabBarAwayDistance
++{
++  UITabBar *bar = [_controller tabBar];
++  return CGRectGetHeight(bar.bounds) + _controller.view.safeAreaInsets.bottom + 12;
++}
++
++- (void)placeTabBarHidden:(BOOL)hidden
++{
++  [_tabBarSlide stopAnimation:YES];
++  _tabBarSlide = nil;
++  UITabBar *bar = [_controller tabBar];
++  bar.transform = hidden ? CGAffineTransformMakeTranslation(0, [self tabBarAwayDistance]) : CGAffineTransformIdentity;
++  bar.alpha = hidden ? 0 : 1;
++  bar.userInteractionEnabled = !hidden;
++}
++
++- (void)slideTabBarHidden:(BOOL)hidden
++{
++  UITabBar *bar = [_controller tabBar];
++  // Taking over a slide still under way: carry on from where it is.
++  [_tabBarSlide stopAnimation:YES];
++  _tabBarSlide = nil;
++  const CGFloat away = [self tabBarAwayDistance];
++  bar.userInteractionEnabled = !hidden;
++
++  UISpringTimingParameters *spring = [[UISpringTimingParameters alloc] initWithMass:1
++                                                                          stiffness:320
++                                                                            damping:34
++                                                                    initialVelocity:CGVectorMake(0, 0)];
++  UIViewPropertyAnimator *slide = [[UIViewPropertyAnimator alloc] initWithDuration:0 timingParameters:spring];
++  slide.interruptible = YES;
++  [slide addAnimations:^{
++    bar.transform = hidden ? CGAffineTransformMakeTranslation(0, away) : CGAffineTransformIdentity;
++    bar.alpha = hidden ? 0 : 1;
++  }];
++  _tabBarSlide = slide;
++  [slide startAnimation];
++}
++
+ @end
+ 
+ #pragma mark - Modified React Subviews implementation
+@@ -574,6 +624,7 @@ - (BOOL)hasModifiedReactSubviewsInCurrentTransaction
+   return _hasModifiedTabsScreensInCurrentTransaction || _hasModifiedBottomAccessoryInCurrentTransation;
+ }
+ 
++
+ @end
+ 
+ #pragma mark - View class exposure

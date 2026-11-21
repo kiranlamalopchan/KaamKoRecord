@@ -28,6 +28,12 @@
 
       {% include "registration/_credential_field.html" with field=form.password2 label="Confirm password" kind="password" autocomplete="new-password" enterkeyhint="go" show_errors=True password_help=False %}
 
+      <div class="field">
+        <label class="label" for="id_invited_by">Who invited you? (optional)</label>
+        <input class="input input--code" type="text" name="invited_by" id="id_invited_by" value="{{ form.invited_by.value|default:''|upper }}" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="150">
+        {% if form.invited_by.errors %}<div class="help help--error">{{ form.invited_by.errors|striptags }}</div>{% else %}<div class="help">{{ form.invited_by.help_text }}</div>{% endif %}
+      </div>
+
       <button class="btn btn--primary btn--block" type="submit"
               style="margin-top:var(--sp-5);">Create account</button>
     </form>

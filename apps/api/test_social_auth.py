@@ -55,8 +55,31 @@ class SocialAuthTests(TestCase):
         self.assertEqual(response['Cache-Control'], 'no-store')
         return parse_qs(urlsplit(location).query)['code'][0]
 
-    def exchange(self, code, verifier=None):
-        return self.client.post(reverse('api:social_exchange'), {'code': code, 'verifier': verifier or self.verifier})
+    def exchange(self, code, verifier=None, **extra):
+        return self.client.post(reverse('api:social_exchange'), {'code': code, 'verifier': verifier or self.verifier, **extra})
+
+    def test_a_new_google_account_links_the_invite_code_the_phone_came_with(self):
+        from apps.invites.models import InviteCode
+        User.objects.filter(pk=self.user.pk).update(date_joined=timezone.now() - timedelta(days=30))
+        code = InviteCode.for_user(self.user).code
+        state, _ = self.start()
+        response = self.exchange(self.finish(state), invited_by=code.lower())
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.json()['ask_invited_by'])
+        self.assertEqual(User.objects.get(email='new@example.test').invited_by.inviter, self.user)
+
+    def test_a_new_account_without_a_code_is_asked_once_an_existing_one_never(self):
+        state, _ = self.start()
+        self.assertTrue(self.exchange(self.finish(state)).json()['ask_invited_by'])
+        User.objects.filter(email='new@example.test').update(date_joined=timezone.now() - timedelta(days=3))
+        state, _ = self.start()
+        self.assertFalse(self.exchange(self.finish(state)).json()['ask_invited_by'])
+
+    def test_a_wrong_code_from_the_install_just_asks_instead(self):
+        state, _ = self.start()
+        response = self.exchange(self.finish(state), invited_by='ZZZZZZ')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ask_invited_by'])
 
     def test_google_login_issues_session_and_is_single_use(self):
         state, params = self.start()

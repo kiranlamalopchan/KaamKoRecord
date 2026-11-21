@@ -53,7 +53,7 @@ export function targetFor(path: string): Target {
   if (p.startsWith("/plu/")) return { screen: "/plu" };
   if (p.startsWith("/timesheet/")) return { screen: "/clock" };
   if (p === "/holidays") return { screen: "/holidays" };
-  if (p === "/profile" && ["#friends", "#statement", "#activity"].includes(url.hash)) return { screen: `/profile/${url.hash.slice(1)}` };
+  if (p === "/profile" && ["#friends", "#statement", "#activity", "#invite"].includes(url.hash)) return { screen: `/profile/${url.hash.slice(1)}` };
   if (p === "/profile") return { screen: "/profile" };
   if (["/profile/friends", "/profile/statement", "/profile/activity"].includes(p)) return { screen: p };
   return { screen: "/notifications" };
